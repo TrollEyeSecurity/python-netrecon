@@ -2,6 +2,7 @@
 
 # application
 netrecon/settings.py
+run.py
 
 # ide crap
 .idea/
