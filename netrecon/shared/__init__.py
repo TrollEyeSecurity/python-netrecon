@@ -1,6 +1,6 @@
-from netrecon import settings
-from pexpect import spawnu, TIMEOUT, EOF
-
+from pexpect import spawnu, TIMEOUT, EOF, exceptions as pexceptions
+from subprocess import check_output, CalledProcessError
+import platform
 
 # ----------------
 # pexpect SSH info
@@ -11,8 +11,7 @@ SSH_REFUSED = 'Connection refused'
 SSH_OUTDATED_KEX = '.no matching key exchange method found'
 SSH_OUTDATED_CIPHER = '.no matching cipher found. Their offer: aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc'
 SSH_OUTDATED_PROTOCOL = 'Protocol major versions differ: 2 vs. 1\\r\\r\\n'
-PASSWORD = '[P|p]assword'
-PASSWORD_W_S = '[P|p]assword '
+PASSWORD = '.*[P|p]assword.*'
 PERMISSION_DENIED = 'Permission denied, please try again.'
 
 # -----------
@@ -74,7 +73,7 @@ PAN_INVALID_SYNTAX = '.*Invalid syntax.*'
 PAN_UNKNOWN_CMD = '.*Unknown command:.*'
 
 
-def get_ssh_session(host, username):
+def get_ssh_session(host, username, password):
     ssh_session = 'ssh %s@%s' % (username, host)
     child = spawnu(ssh_session)
     passwd = 0
@@ -114,7 +113,7 @@ def get_ssh_session(host, username):
         elif s == 2:
             if passwd < 0:
                 return 95, ''
-            child.sendline(settings.SVC_ACCOUNT_PASSWD)
+            child.sendline(password)
             passwd += 1
             continue
 
@@ -155,7 +154,7 @@ def get_ssh_session(host, username):
             return 1, ''
 
 
-def discover_os(ssh_session, prompt):
+def discover_os(ssh_session, prompt, password):
     infrastructure_os = dict()
     ssh_session.sendline(IOS_TERMLEN0)
     cmd_response = ssh_session.expect([TIMEOUT, PAN_UNKNOWN_CMD, ERROR, BASH_ERROR, prompt])
@@ -166,30 +165,61 @@ def discover_os(ssh_session, prompt):
         if it_is_panos == 1:
             infrastructure_os = {'os': 'panos'}
     if cmd_response == 2:
-        ssh_session.sendline(ASA_TERMPAGER0)
-        cmd_response = ssh_session.expect([TIMEOUT, prompt, ERROR])
+        ssh_session.sendline(ENABLE)
+        cmd_response = ssh_session.expect([TIMEOUT, PASSWORD])
         if cmd_response == 1:
-            infrastructure_os = {'os': 'asaos'}
-        if cmd_response == 2:
-            ssh_session.sendline(ENABLE)
-            cmd_response = ssh_session.expect([TIMEOUT, PASSWORD, PASSWORD_W_S])
-            if cmd_response == 1 or cmd_response == 2:
-                ssh_session.sendline(settings.SVC_ACCOUNT_PASSWD)
-                cmd_response = ssh_session.expect([TIMEOUT, PASSWORD, PASSWORD_W_S, HASH_PROMPT, HASH_PROMPT_W_S])
-                if cmd_response == 1 or cmd_response == 2:
-                    print('ERROR: password is incorrect')
-                    return
-                if cmd_response == 3:
-                    prompt = HASH_PROMPT
-                if cmd_response == 4:
-                    prompt = HASH_PROMPT_W_S
+            ssh_session.sendline(password)
+            cmd_response = ssh_session.expect([TIMEOUT, PASSWORD, HASH_PROMPT, HASH_PROMPT_W_S])
+            if cmd_response == 1:
+                print('ERROR: password is incorrect')
+                return
+            if cmd_response == 2:
+                prompt = HASH_PROMPT
+            if cmd_response == 3:
+                prompt = HASH_PROMPT_W_S
+            ssh_session.sendline(IOS_TERMLEN0)
+            cmd_response = ssh_session.expect([TIMEOUT, ERROR, prompt])
+            if cmd_response == 1:
                 ssh_session.sendline(ASA_TERMPAGER0)
                 cmd_response = ssh_session.expect([TIMEOUT, prompt])
                 if cmd_response == 1:
                     infrastructure_os = {'os': 'asaos'}
+            if cmd_response == 2:
+                infrastructure_os = {'os': 'ios'}
     if cmd_response == 3:
         infrastructure_os = {'os': 'linux'}
     elif cmd_response == 4:
         infrastructure_os = {'os': 'ios'}
 
     return infrastructure_os, ssh_session, prompt
+
+
+def lookup_mac_vendor(mac_lookup_string):
+    if platform.system() == 'Darwin':
+        nmap_mac_prefixes = '/usr/local/Cellar/nmap/7.60/share/nmap/nmap-mac-prefixes'
+    else:
+        nmap_mac_prefixes = '/usr/share/nmap/nmap-mac-prefixes'
+
+    try:
+        mac_vendor_lookup = check_output(['grep',
+                                          mac_lookup_string[:6].upper(),
+                                          nmap_mac_prefixes])
+
+        mac_vendor_lookup = str(mac_vendor_lookup.strip())
+        mac_vendor = ' '.join(mac_vendor_lookup.strip('\'').split(' ')[1:])
+
+    except CalledProcessError:
+        mac_vendor = None
+
+    return mac_vendor
+
+
+def kill_ssh_session(ssh_session):
+    try:
+        ssh_session.close()
+    except pexceptions.ExceptionPexpect as e1:
+        print('INFO: %s' % str(e1))
+        try:
+            ssh_session.close()
+        except pexceptions.ExceptionPexpect as e2:
+            print('ERROR: %s' % str(e2))
