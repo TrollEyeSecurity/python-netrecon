@@ -1,6 +1,8 @@
 from pexpect import spawnu, TIMEOUT, EOF, exceptions as pexceptions
 from subprocess import check_output, CalledProcessError
+from re import search, sub
 import platform
+import ipaddress
 
 # ----------------
 # pexpect SSH info
@@ -39,12 +41,22 @@ IOS_SHOW_LOCAL_CONNECTIONS = 'show ip route connected | in C'
 IOS_SHOW_ARP = 'show arp | exclude Incomplete'
 IOS_SHOWIPINTBR = 'show ip int br | exclude unassigned'
 IOS_SHOW_CAM = 'show mac address-table | exclude All'
-IOS_SWITCH_SHOW_MODEL = 'show version | include Model number'
+IOS_SWITCH_SHOW_MODEL = 'show version | include Model Number'
+IOS_S72033_RP_SHOW_MODEL = 'show version | include cisco WS-'
 IOS_RTR_SHOW_MODEL = 'show version | include \*'
-IOS_SWITCH_SHOW_SERIALNUM = 'show version | include System serial number'
+IOS_SWITCH_SHOW_SERIALNUM = 'show version | include System Serial Number'
+IOS_S72033_RP_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_RTR_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_SHOW_LICS = 'show version | include License Level'
 IOS_LAST_RESORT_SHOW_MODEL = 'show version  | include (WS)'
+
+
+# --------------------
+# Cisco NX-OS commands
+# --------------------
+NXOS_SHOW_LOCAL_CONNECTIONS = 'show ip route direct | include attached'
+NXOS_SHOW_ARP = 'show ip arp | exclude INCOMPLETE'
+
 
 # ------------------
 # Cisco ASA commands
@@ -52,13 +64,21 @@ IOS_LAST_RESORT_SHOW_MODEL = 'show version  | include (WS)'
 ASA_TERMPAGER0 = 'terminal pager 0'
 ASA_SHOWARP = 'show arp'
 ASA_SHOW_LOCAL_CONNECTIONS = 'show route | in C'
-ASA_SHOW_XLATE = 'show xlate'
+ASA_SHOW_XLATE = 'show xlate type static'
 ASA_SHOW_CONN = 'show conn'
 ASA_SHOW_SERIALNUM = 'show version | include Serial Number:'
 ASA_SHOW_MODEL = 'show version | include Hardware:'
-ASA_SHOW_IP = 'show ip address'
+ASA_SHOW_INTERFACE = 'show running-config interface'
 
 
+# ------------------
+# Palo Alto commands
+# ------------------
+
+PAN_SHOW_INTERFACES_LOGICAL = 'show interface logical'
+PAN_SHOW_RUN_NAT = 'show running nat-policy'
+PAN_SHOW_SUBNETS = 'show routing route type connect | match C '
+PAN_SHOW_SYS_INFO = 'show system info'
 PAN_SET_CLI_PAGER_OFF = 'set cli pager off'
 PAN_SHOW_ARP = 'show arp all'
 
@@ -71,6 +91,25 @@ ERROR = '.*ERROR:.*'
 BASH_ERROR = '.*bash:.*'
 PAN_INVALID_SYNTAX = '.*Invalid syntax.*'
 PAN_UNKNOWN_CMD = '.*Unknown command:.*'
+
+
+# ------------
+# COMMON REGEX
+# ------------
+
+ipaddr_regex = r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
+
+subnet_regex = r'((?:[0-9]{1,3}\.){3}[0-9]{1,3}/\d+)'
+
+mac_addr_regex = r'(([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})'
+
+
+def is_subnet(net):
+    try:
+        ipaddress.ip_network(net)
+        return True
+    except ValueError:
+        return False
 
 
 def get_ssh_session(host, username, password):
@@ -98,6 +137,7 @@ def get_ssh_session(host, username, password):
                           SSH_BAD_KEY,
                           SSH_OUTDATED_PROTOCOL,
                           OPERATIONAL_TIMEOUT,
+                          SSH_OUTDATED_CIPHER,
                           EOF])
 
         if s == 0:
@@ -118,6 +158,7 @@ def get_ssh_session(host, username, password):
             continue
 
         elif s == 3:
+            child.close()
             return 94, ''
 
         elif s == 4:
@@ -133,24 +174,36 @@ def get_ssh_session(host, username, password):
             return child, HASH_PROMPT_W_S
 
         elif s == 8:
+            child.close()
             return 99, ''
 
         elif s == 9:
+            child.close()
             return 98, ''
 
         elif s == 10:
+            child.close()
             return 97, ''
 
         elif s == 11:
+            child.close()
             return 96, ''
 
         elif s == 12:
+            child.close()
             return 99, ''
 
         elif s == 12:
+            child.close()
             return 93, ''
 
+        elif s == 13:
+            ssh_session += ' -c aes128-cbc'  # try aes128-cbc
+            child = spawnu(ssh_session)
+            continue
+
         else:
+            child.close()
             return 1, ''
 
 
@@ -161,8 +214,8 @@ def discover_os(ssh_session, prompt, password):
 
     if cmd_response == 1:
         ssh_session.sendline(PAN_SET_CLI_PAGER_OFF)
-        it_is_panos = ssh_session.expect([TIMEOUT, prompt])
-        if it_is_panos == 1:
+        cmd_response = ssh_session.expect([TIMEOUT, prompt])
+        if cmd_response == 1:
             infrastructure_os = {'os': 'panos'}
     if cmd_response == 2:
         ssh_session.sendline(ENABLE)
@@ -185,11 +238,27 @@ def discover_os(ssh_session, prompt, password):
                 if cmd_response == 1:
                     infrastructure_os = {'os': 'asaos'}
             if cmd_response == 2:
-                infrastructure_os = {'os': 'ios'}
+                ssh_session.sendline(SHOW_OS)
+                ssh_session.expect([TIMEOUT, prompt])
+                show_os_buff = ssh_session.before
+                if 'NX-OS' in show_os_buff:
+                    infrastructure_os = {'os': 'nxos'}
+                elif 'IOS' in show_os_buff:
+                    infrastructure_os = {'os': 'ios'}
+                else:
+                    infrastructure_os = {'os': 'unknown'}
     if cmd_response == 3:
         infrastructure_os = {'os': 'linux'}
     elif cmd_response == 4:
-        infrastructure_os = {'os': 'ios'}
+        ssh_session.sendline(SHOW_OS)
+        ssh_session.expect([TIMEOUT, prompt])
+        show_os_buff = ssh_session.before
+        if 'NX-OS' in show_os_buff:
+            infrastructure_os = {'os': 'nxos'}
+        elif 'IOS' in show_os_buff:
+            infrastructure_os = {'os': 'ios'}
+        else:
+            infrastructure_os = {'os': 'unknown'}
 
     return infrastructure_os, ssh_session, prompt
 
@@ -223,3 +292,152 @@ def kill_ssh_session(ssh_session):
             ssh_session.close()
         except pexceptions.ExceptionPexpect as e2:
             print('ERROR: %s' % str(e2))
+
+
+def get_cdp_list(cdp_data, os='ios'):
+    cdp_list = list()
+
+    if cdp_data:
+        for element in cdp_data:
+
+            # empty discovery list
+            discovery_list = []
+
+            # search for the device id
+            reg_device_id = search(r'(Device ID:.+?)\n', element)
+
+            try:
+
+                # add the device id to the list
+                discovery_list += [sub(r':\s+', ':', reg_device_id.group(0).strip())]
+
+            except AttributeError:
+                discovery_list.append('Device ID:')
+
+            # search for the ip address
+            reg_entry_addrs = search(ipaddr_regex, element)
+
+            try:
+
+                # add the ip  to the list
+                discovery_list.append('IP:%s' % str(reg_entry_addrs.group(0).strip('\n')))
+            except AttributeError:
+                discovery_list.append('IP:')
+
+            # search for the platform information
+            reg_platform = search(r'(Platform:.+?)\n', element)
+
+            try:
+
+                # parse platform info and clean it up
+                platform_line = sub(r':\s+', ':', reg_platform.group(0).strip())
+                platform_capabilities = platform_line.split(',  ')
+
+                # add the platform info to the list
+
+                if os == 'nxos':
+                    platform_capabilities = platform_capabilities[0].split(',')
+                    discovery_list.append(platform_capabilities[0].lstrip())
+                    discovery_list.append(platform_capabilities[1].lstrip())
+                else:
+                    discovery_list.append(platform_capabilities[0])
+                    discovery_list.append(platform_capabilities[1])
+            except AttributeError:
+                discovery_list.append('Platform:')
+                discovery_list.append('Capabilities:')
+
+            # search for interface information
+            reg_int = search(r'(Interface:.+?)\n', element)
+
+            try:
+
+                # parse interface info and clean it up
+                int_line = sub(r':\s+', ':', reg_int.group(0).strip())
+                interface_port_id = int_line.split(',  ')
+
+                # add interface info to the list
+
+                if os == 'nxos':
+                    interface_port_id = interface_port_id[0].split(',')
+                    discovery_list.append(interface_port_id[0].lstrip())
+                    discovery_list.append(interface_port_id[1].lstrip())
+                else:
+                    discovery_list.append(interface_port_id[0])
+                    discovery_list.append(interface_port_id[1])
+            except AttributeError:
+                discovery_list.append('Interface:')
+                discovery_list.append('Port ID (outgoing port):')
+
+            # search for advertisement info
+            reg_advertisment_ver = search(r'(advertisement version:.+?)\n', element)
+
+            try:
+
+                # parse advertisement info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_advertisment_ver.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('advertisement version:')
+
+            # search for protocol information
+            reg_protocol_hello = search(r'(Protocol Hello:.+?)\n', element)
+
+            try:
+
+                # parse protocol info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_protocol_hello.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('Protocol Hello:')
+
+            # search for vtp mgnt domain
+            reg_vtp_mgnt = search(r'(VTP Management Domain:.+?)\n', element)
+
+            try:
+
+                # parse vtp mgnt info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_vtp_mgnt.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('VTP Management Domain:')
+
+            # search for native vlan info
+            reg_native_vlan = search(r'(Native VLAN:.+?)\n', element)
+
+            try:
+
+                # parse native vlan info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_native_vlan.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('Native VLAN:')
+
+            # search for duplex info
+            reg_duplex = search(r'(Duplex:.+?)\n', element)
+
+            try:
+
+                # parse duplex info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_duplex.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('Duplex:')
+
+            # search for power info
+            reg_power_drawn = search(r'(Power drawn:.+?)\n', element)
+
+            # discovery_dictionary = dict()
+
+            try:
+                # parse power info and clean it up
+                discovery_list += [sub(r':\s+', ':', reg_power_drawn.group(0).strip())]
+            except AttributeError:
+                discovery_list.append('Power drawn:')
+
+                # build the discovery protocol dictionary from the list
+            discovery_dictionary = dict(map(str, x.split(':')) for x in discovery_list)
+
+            # iterate the key, value pairs and change empty value to None
+            for k, v in discovery_dictionary.items():
+                if v is '':
+                    discovery_dictionary[k] = None
+
+            if discovery_dictionary['Device ID'] is not None:
+                if discovery_dictionary not in cdp_list:
+                    cdp_list.append(discovery_dictionary)
+    return cdp_list
