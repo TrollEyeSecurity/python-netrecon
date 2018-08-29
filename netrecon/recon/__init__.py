@@ -117,7 +117,7 @@ def get_panos_hosts(ssh_session, prompt):
                     mac_vendor = shared.lookup_mac_vendor(mac_addr)
                     host_dict = {'interface': entry[0],
                                  'ip_addr': entry[1],
-                                 'hw_addr': mac_addr,
+                                 'mac_addr': mac_addr,
                                  'port': entry[3],
                                  'mac_vendor': mac_vendor
                                  }
@@ -127,8 +127,6 @@ def get_panos_hosts(ssh_session, prompt):
 
     for i in subnets_buff_split:
         if shared.is_subnet(i):
-        #subnet_match = search(shared.subnet_regex, i)
-        #if subnet_match:
             interface = i.split()[-1]
             local_subnet_dict = {'subnet': '%s' % i,
                                  'source_int': interface}
@@ -284,11 +282,8 @@ def get_asa_hosts(ssh_session, prompt):
             interface = subnet_line_list[-1:][0]
         except IndexError:
             continue
-        # todo: is this the right way? can't be..
-        ip_addr_match = search(r'((?:[0-9]{1,3}\.){3}[0-9]{1,3})', ip_addr)
-        if ip_addr_match:
-            mask_match = search(r'((?:[0-9]{1,3}\.){3}[0-9]{1,3})', mask)
-            if mask_match:
+        if shared.is_valid_ip(ip_addr):
+            if shared.is_subnet(mask):
                 local_subnet_dict = {'subnet': '%s/%s' % (ip_addr, IPAddress(mask).netmask_bits()),
                                      'source_int': interface}
                 if local_subnet_dict not in subnet_list:
@@ -301,7 +296,6 @@ def get_asa_hosts(ssh_session, prompt):
         except IndexError:
             continue
         mac_vendor = shared.lookup_mac_vendor(mac_addr)
-
         host_dict = {'ip_addr': arp_split[1],
                      'mac_addr': mac_addr,
                      'adjacency_int': arp_split[0],
@@ -435,39 +429,46 @@ def get_nxos_hosts(ssh_session, prompt):
                     subnet_list.append(local_subnet_dict)
 
     cdp_list = shared.get_cdp_list(cdp_data, 'nxos')
-    arp_lines = arp_buff.split('Address         Age       MAC Address     Interface')
-    arp_lines = arp_lines[1].split('\r\n')
-    arp_lines.pop(-1)
-    for arp_line in arp_lines:
-        if arp_line:
-            line = arp_line.split()
-            mac_vendor = shared.lookup_mac_vendor(line[2].replace('.', ''))
-            host_dict = {'ip_addr': line[0],
-                         'mac_addr': line[2],
-                         'adjacency_int': line[-1],
-                         'mac_vendor': mac_vendor}
-
-            if host_dict not in host_list:
-                host_list.append(host_dict)
 
     cam_lines = cam_buff.split('---------+-----------------+--------+---------+------+----+------------------')[1].split('\r\n')
     cam_lines.pop(-1)
     for cam_line in cam_lines:
         cam_line = cam_line.split()
         if cam_line:
+            mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
             mac_addr_dict = {'mac_addr': cam_line[2],
                              'type': cam_line[3],
                              'port': cam_line[-1],
-                             'vlan': cam_line[1]}
+                             'vlan': cam_line[1],
+                             'mac_vendor': mac_vendor}
             if mac_addr_dict not in mac_list:
                 mac_list.append(mac_addr_dict)
+                continue
+
+    arp_lines = arp_buff.split('Address         Age       MAC Address     Interface')
+    arp_lines = arp_lines[1].split('\r\n')
+    arp_lines.pop(-1)
+    for arp_line in arp_lines:
+        if arp_line:
+            line = arp_line.split()
+            for x in mac_list:
+                if x['mac_addr'] == line[2]:
+                    host_dict = {'ip_addr': line[0],
+                                 'mac_addr': line[2],
+                                 'adjacency_int': line[-1],
+                                 'mac_vendor': x['mac_vendor'],
+                                 'type': x['type'],
+                                 'port': x['port'],
+                                 'vlan': x['vlan']}
+
+                    if host_dict not in host_list:
+                        host_list.append(host_dict)
 
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
     data['discovery_list'] = cdp_list
-    data['mac_list'] = mac_list
 
     return data
 
@@ -599,7 +600,6 @@ def get_ios_hosts(ssh_session, prompt):
                     subnet = subnet_split[1]
                     source_int = subnet_split[5]
                 else:
-                    # subnet_split = subnet_line.split()
                     subnet = subnet_split[1]
                     source_int = subnet[5]
                 local_subnet_dict = {'subnet': subnet,
@@ -608,18 +608,6 @@ def get_ios_hosts(ssh_session, prompt):
                     subnet_list.append(local_subnet_dict)
 
     cdp_list = shared.get_cdp_list(cdp_data)
-
-    for arp_line in arp_lines:
-        if arp_line:
-            line = arp_line.split()
-            mac_vendor = shared.lookup_mac_vendor(line[3].replace('.', ''))
-            host_dict = {'ip_addr': line[1],
-                         'mac_addr': line[3],
-                         'adjacency_int': line[-1],
-                         'mac_vendor': mac_vendor}
-
-            if host_dict not in host_list:
-                host_list.append(host_dict)
 
     for cam_line in cam_lines:
         if cam_line:
@@ -635,7 +623,6 @@ def get_ios_hosts(ssh_session, prompt):
                             vlan_id = int(cam_line[0])
                         except ValueError:
                             continue
-
                     mac_vendor = shared.lookup_mac_vendor(cam_line[1].replace('.', ''))
                     mac_addr_dict = {'mac_addr': cam_line[1],
                                      'mac_vendor': mac_vendor,
@@ -645,6 +632,23 @@ def get_ios_hosts(ssh_session, prompt):
                     if mac_addr_dict not in mac_list:
                         mac_list.append(mac_addr_dict)
 
+    for arp_line in arp_lines:
+        if arp_line:
+            line = arp_line.split()
+            for x in mac_list:
+                if x['mac_addr'] == line[3]:
+
+                    host_dict = {'ip_addr': line[1],
+                                 'mac_addr': line[3],
+                                 'adjacency_int': line[-1],
+                                 'mac_vendor': x['mac_vendor'],
+                                 'type': x['type'],
+                                 'port': x['port'],
+                                 'vlan': x['vlan']}
+
+                    if host_dict not in host_list:
+                        host_list.append(host_dict)
+
     # todo: add ios nat
     # data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
@@ -652,6 +656,6 @@ def get_ios_hosts(ssh_session, prompt):
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
     data['discovery_list'] = cdp_list
-    data['mac_list'] = mac_list
+    # data['mac_list'] = mac_list
 
     return data
