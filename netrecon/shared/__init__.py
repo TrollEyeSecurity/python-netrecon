@@ -112,6 +112,14 @@ def is_subnet(net):
         return False
 
 
+def is_valid_ip(ip):
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+
 def get_ssh_session(host, username, password):
     ssh_session = 'ssh %s@%s' % (username, host)
     child = spawnu(ssh_session)
