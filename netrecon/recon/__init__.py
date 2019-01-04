@@ -1,6 +1,6 @@
 from netrecon import shared
 from pexpect import TIMEOUT
-from re import search, sub, match, compile as recompile
+from re import search, compile as recompile
 from netaddr import IPAddress
 import time
 
@@ -34,6 +34,9 @@ def host_discovery(system_address, username, password):
     if ssh_session == 94:
         print('ERROR: permission denied for %s' % system_address)
         return 94
+    if ssh_session == 92:
+        print('ERROR: network unreachable %s' % system_address)
+        return 92
     if ssh_session == 93:
         print('ERROR: EOF for %s' % system_address)
         return 93
@@ -55,7 +58,7 @@ def host_discovery(system_address, username, password):
                 data = infrastructure_os['os']
                 shared.kill_ssh_session(ssh_session)
     except KeyError as e:
-        print('ERROR: %s' % str(e))
+        print('HOST_DISCOVERY EXCEPTION ERROR: %s' % str(e))
     return data
 
 
@@ -102,7 +105,7 @@ def get_panos_hosts(ssh_session, prompt):
         if e != '':
             entry = e.rstrip().split()
             if len(entry) == 7:
-                d = {'ip_addr': entry[6], 'tag': entry[5], 'name': entry[0], 'zone': entry[3]}
+                d = {'system_ip_address': entry[6], 'vlan': entry[5], 'name': entry[0], 'zone': entry[3]}
                 if d not in system_ip_list:
                     system_ip_list.append(d)
 
@@ -115,21 +118,21 @@ def get_panos_hosts(ssh_session, prompt):
                 if entry[4] == 'c':
                     mac_addr = entry[2].replace(':', '')
                     mac_vendor = shared.lookup_mac_vendor(mac_addr)
-                    host_dict = {'interface': entry[0],
-                                 'ip_addr': entry[1],
-                                 'mac_addr': mac_addr,
+                    host_dict = {'adjacency_interface': entry[0],
+                                 'host_address': entry[1],
+                                 'mac_address': mac_addr,
                                  'port': entry[3],
                                  'mac_vendor': mac_vendor
                                  }
                     host_list.append(host_dict)
 
     subnets_buff_split = subnets_buff.split('\r\n')
-
-    for i in subnets_buff_split:
-        if shared.is_subnet(i):
-            interface = i.split()[-1]
-            local_subnet_dict = {'subnet': '%s' % i,
-                                 'source_int': interface}
+    subnets_buff_split.pop(-1)
+    for i in subnets_buff_split[2:]:
+        sn = i.split()
+        if shared.is_subnet(sn[0]):
+            local_subnet_dict = {'subnet': '%s' % sn[0],
+                                 'source_interface': sn[-1]}
             if local_subnet_dict not in subnet_list:
                 subnet_list.append(local_subnet_dict)
 
@@ -157,7 +160,7 @@ def get_panos_hosts(ssh_session, prompt):
             if line:
                 line_split = line.split()
                 if line_split[0] == 'nat-type':
-                    d['nat-type'] = line_split[1].rstrip(';')
+                    d['nat_type'] = line_split[1].rstrip(';')
                 if line_split[0] == 'from':
                     d['from'] = line_split[1].rstrip(';')
                 if line_split[0] == 'source':
@@ -169,7 +172,7 @@ def get_panos_hosts(ssh_session, prompt):
                 if line_split[0] == 'to':
                     d['to'] = line_split[1].rstrip(';')
                 if line_split[0] == 'to-interface':
-                    d['to-interface'] = line_split[1].rstrip(';')
+                    d['to_interface'] = line_split[1].rstrip(';')
                 if line_split[0] == 'destination':
                     if '[' in line_split[1]:
                         line_split.pop(-1)
@@ -181,14 +184,14 @@ def get_panos_hosts(ssh_session, prompt):
                 if line_split[0] == 'translate-to':
                     line_split = line.split('"')
                     line_split.pop(-1)
-                    d['translate-to'] = line_split[1]
+                    d['translate_to'] = line_split[1]
         if d not in nat_list:
             nat_list.append(d)
 
     system_info = {'system_model': model,
                    'system_serial': serial,
                    'license': None,
-                   'system_sw_version': sw_version}
+                   'system_sw_version': 'PAN-OS %s' % sw_version}
     data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info
@@ -205,7 +208,8 @@ def get_asa_hosts(ssh_session, prompt):
     system_ip_list = list()
     nat_list = list()
 
-    ssh_session.sendline(shared.SHOW_OS)
+    ssh_session.expect([TIMEOUT, prompt])
+    ssh_session.sendline(shared.ASA_SHOW_OS)
     ssh_session.expect([TIMEOUT, prompt])
     os_software = ssh_session.before
 
@@ -217,7 +221,7 @@ def get_asa_hosts(ssh_session, prompt):
     ssh_session.sendline(shared.ASA_SHOW_MODEL)
     ssh_session.expect([TIMEOUT, prompt])
     time.sleep(.1)
-    asa_model = ssh_session.before
+    asa_model_buff = ssh_session.before
 
     ssh_session.sendline(shared.ASA_SHOW_INTERFACE)
     ssh_session.expect([TIMEOUT, prompt])
@@ -260,17 +264,17 @@ def get_asa_hosts(ssh_session, prompt):
                 if x[0] == 'ip':
                     ip_addr = x[2]
                     net_mask = x[3]
-                    d['ip_addr'] = ip_addr
+                    d['system_ip_address'] = ip_addr
                     d['net_mask'] = net_mask
                 if x[0] == 'vlan':
                     tag = int(x[1])
-                    d['tag'] = tag
+                    d['vlan'] = tag
                 if x[0] == 'interface':
                     interface = x[1]
                     d['interface'] = interface
         if 'nameif' in d:
             if 'tag' not in d:
-                d['tag'] = 0
+                d['vlan'] = 0
             if d not in system_ip_list:
                 system_ip_list.append(d)
 
@@ -285,7 +289,7 @@ def get_asa_hosts(ssh_session, prompt):
         if shared.is_valid_ip(ip_addr):
             if shared.is_subnet(mask):
                 local_subnet_dict = {'subnet': '%s/%s' % (ip_addr, IPAddress(mask).netmask_bits()),
-                                     'source_int': interface}
+                                     'source_interface': interface}
                 if local_subnet_dict not in subnet_list:
                     subnet_list.append(local_subnet_dict)
     for a in arp_lines:
@@ -296,28 +300,32 @@ def get_asa_hosts(ssh_session, prompt):
         except IndexError:
             continue
         mac_vendor = shared.lookup_mac_vendor(mac_addr)
-        host_dict = {'ip_addr': arp_split[1],
-                     'mac_addr': mac_addr,
-                     'adjacency_int': arp_split[0],
+        host_dict = {'host_address': arp_split[1],
+                     'mac_address': mac_addr,
+                     'adjacency_interface': arp_split[0],
                      'mac_vendor': mac_vendor}
         if host_dict not in host_list:
             host_list.append(host_dict)
 
-    asa_model_split = asa_model.split('\r\n')
+    asa_model_split = asa_model_buff.split('\r\n')
     for asa_model in asa_model_split:
         asa_model_match = search(r'^Hardware:\s+([^\s]+)', asa_model)
         if asa_model_match:
-            system_info['model'] = asa_model_match.group(1)
+            if asa_model_match.group(1).endswith(','):
+                asa_model = asa_model_match.group(1)[:-1]
+            else:
+                asa_model = asa_model_match.group(1)
+            system_info['system_model'] = asa_model
     asa_sn_split = asa_sn.split('\r\n')
     for asa_sn in asa_sn_split:
         asa_serial_match = search(r'^Serial\s+Number\s*:\s+([^\s]+)', asa_sn)
         if asa_serial_match:
-            system_info['serial'] = asa_serial_match.group(1)
+            system_info['system_serial'] = asa_serial_match.group(1)
     os_software_split = os_software.split('\r\n')
     for os_software in os_software_split:
         asa_os_ver_match = search(r'(^Cisco\s+Adaptive\s+Security\s+Appliance)', os_software)
         if asa_os_ver_match:
-            system_info['sw_version'] = os_software.rstrip()
+            system_info['system_sw_version'] = os_software.rstrip()
     nat_lines = recompile(r'TCP|UDP|NAT').split(nat_buff)
     if not nat_lines:
         nat_lines = nat_buff.split('\r\n')
@@ -365,21 +373,21 @@ def get_nxos_hosts(ssh_session, prompt):
         if nxos_ver:
             sw_version = i.rstrip()
 
-    system_info['sw_version'] = sw_version
+    system_info['system_sw_version'] = sw_version
 
     ssh_session.sendline('show version | include "Processor Board ID"')
     ssh_session.expect([TIMEOUT, prompt])
     switch_sn = ssh_session.before
-    system_info['serial'] = switch_sn.split('show version | include "Processor Board ID"')[1].split('\r\n')[1].split('ID')[1].strip()
+    system_info['system_serial'] = switch_sn.split('show version | include "Processor Board ID"')[1].split('\r\n')[1].split('ID')[1].strip()
 
     ssh_session.sendline('show version  | section Hardware')
     ssh_session.expect([TIMEOUT, prompt])
     switch_model = ssh_session.before
-    system_info['model'] = switch_model.split('show version  | section Hardware')[1].split('Hardware')[1].split('\r\n')[1].strip()
+    system_info['system_model'] = switch_model.split('show version  | section Hardware')[1].split('Hardware')[1].split('\r\n')[1].strip()
 
     ssh_session.sendline(shared.IOS_SHOWIPINTBR)
     ssh_session.expect([TIMEOUT, prompt])
-    secondary_addrs_buff = ssh_session.before
+    system_ip_address_buff = ssh_session.before
 
     ssh_session.sendline(shared.NXOS_SHOW_LOCAL_CONNECTIONS)
     ssh_session.expect([TIMEOUT, prompt])
@@ -400,13 +408,13 @@ def get_nxos_hosts(ssh_session, prompt):
 
     shared.kill_ssh_session(ssh_session)
 
-    addr_line_split = secondary_addrs_buff.split('Interface            IP Address      Interface Status')
+    addr_line_split = system_ip_address_buff.split('Interface            IP Address      Interface Status')
     addrs_nl_split = addr_line_split[1].split('\r\n')
     addrs_nl_split.pop(-1)
     for addrs_line in addrs_nl_split:
         if addrs_line:
             line = addrs_line.split()
-            d = {'ip_addr': line[1],
+            d = {'system_ip_address': line[1],
                  'name': line[0],
                  'status': line[2]
                  }
@@ -424,7 +432,7 @@ def get_nxos_hosts(ssh_session, prompt):
                 subnet = subnet_split[0]
                 source_int = None
                 local_subnet_dict = {'subnet': subnet,
-                                     'source_int': source_int}
+                                     'source_interface': source_int}
                 if local_subnet_dict not in subnet_list:
                     subnet_list.append(local_subnet_dict)
 
@@ -436,7 +444,7 @@ def get_nxos_hosts(ssh_session, prompt):
         cam_line = cam_line.split()
         if cam_line:
             mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
-            mac_addr_dict = {'mac_addr': cam_line[2],
+            mac_addr_dict = {'mac_address': cam_line[2],
                              'type': cam_line[3],
                              'port': cam_line[-1],
                              'vlan': cam_line[1],
@@ -452,10 +460,10 @@ def get_nxos_hosts(ssh_session, prompt):
         if arp_line:
             line = arp_line.split()
             for x in mac_list:
-                if x['mac_addr'] == line[2]:
-                    host_dict = {'ip_addr': line[0],
-                                 'mac_addr': line[2],
-                                 'adjacency_int': line[-1],
+                if x['mac_address'] == line[2]:
+                    host_dict = {'host_address': line[0],
+                                 'mac_address': line[2],
+                                 'adjacency_interface': line[-1],
                                  'mac_vendor': x['mac_vendor'],
                                  'type': x['type'],
                                  'port': x['port'],
@@ -480,10 +488,6 @@ def get_ios_hosts(ssh_session, prompt):
     subnet_list = list()
     mac_list = list()
     system_info = dict()
-
-    license_level = None
-    serial = None
-    model = None
     sw_version = None
 
     ssh_session.sendline(shared.SHOW_OS)
@@ -497,35 +501,47 @@ def get_ios_hosts(ssh_session, prompt):
         if old_ios or ios_ver:
             sw_version = i.rstrip()
 
-    system_info['sw_version'] = sw_version
-
-    if 'Version 12.2' in system_info['sw_version']:
+    system_info['system_sw_version'] = sw_version
+    if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
-        system_info['serial'] = switch_sn.split('show version | include Processor board ID\r\nProcessor board ID')[1].split('\r\n')[0].lstrip()
-
+        system_info['system_serial'] = switch_sn.split('show version | include Processor board ID\r\nProcessor board ID')[1].split('\r\n')[0].lstrip()
+    elif 'Version 15.2' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOSx_SWITCH_SHOW_SERIALNUM)
+        ssh_session.expect([TIMEOUT, prompt])
+        switch_sn = ssh_session.before
+        system_info['system_serial'] = switch_sn.split('\r\n')[1].split()[1]
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
-        system_info['serial'] = switch_sn.split('System Serial Number')[2].split(':')[1].split()[0]
+        system_info['system_serial'] = switch_sn.split('System Serial Number')[2].split(':')[1].split()[0]
 
-    if 'Version 12.2' in system_info['sw_version']:
+    if 'Version 12.2' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
-        system_info['model'] = switch_model.split('\r\n')[1].split()[1]
-
+        system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+    elif '7200 Software' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_C7200_SHOW_MODEL)
+        ssh_session.expect([TIMEOUT, prompt])
+        switch_model = ssh_session.before
+        system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+    elif 'Version 15.2' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOSx_SWITCH_SHOW_MODEL)
+        ssh_session.expect([TIMEOUT, prompt])
+        switch_model = ssh_session.before
+        system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
-        system_info['model'] = switch_model.split('Model Number')[2].split(':')[1].split()[0]
+        system_info['system_model'] = switch_model.split('Model Number')[2].split(':')[1].split()[0]
 
     ssh_session.sendline(shared.IOS_SHOWIPINTBR)
     ssh_session.expect([TIMEOUT, prompt])
-    secondary_addrs_buff = ssh_session.before
+    system_ip_address_buff = ssh_session.before
 
     ssh_session.sendline(shared.IOS_SHOW_LOCAL_CONNECTIONS)
     ssh_session.expect([TIMEOUT, prompt])
@@ -541,18 +557,24 @@ def get_ios_hosts(ssh_session, prompt):
     if ssh_session.expect([TIMEOUT, '.Invalid input detected.', prompt]) == 1:
         ssh_session.expect([TIMEOUT, prompt])
         ssh_session.sendline('show mac-address-table | exclude All')
-        ssh_session.expect([TIMEOUT, prompt])
-        cam_buff = ssh_session.before
-        cam_lines = cam_buff.split('------+----------------+--------+-----+--------------------------')[1].split('\r\n')
+        try_again = ssh_session.expect([TIMEOUT, prompt, '.Invalid input detected.'])
+        if try_again == 1:
+            cam_buff = ssh_session.before
+            cam_lines = cam_buff.split('------+----------------+--------+-----+--------------------------')[1].split('\r\n')
+        else:
+            cam_lines = ['']
     else:
         cam_buff = ssh_session.before
-        if '4500 L3' in system_info['sw_version']:
+        if '4500 L3' in system_info['system_sw_version'] or '4000 L3' in system_info['system_sw_version']:
             cam_lines = cam_buff.split('-------+---------------+--------+---------------------+--------------------')[1].split('\r\n')
-
-        elif 'C3560' in system_info['sw_version'] or 'C3750' in system_info['sw_version'] or 'IOS-XE' in system_info['sw_version']:
+        elif 'C3560' in system_info['system_sw_version'] or\
+                'C3750' in system_info['system_sw_version'] or\
+                'IOS-XE' in system_info['system_sw_version'] or\
+                'C2960' in system_info['system_sw_version']:
             cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
         else:
             cam_lines = cam_buff.split('------+----------------+--------+-----+----------+--------------------------')[1].split('\r\n')
+
     cam_lines.pop(-1)
 
     ssh_session.sendline(shared.IOS_SHOW_CDP_DETAIL)
@@ -561,10 +583,10 @@ def get_ios_hosts(ssh_session, prompt):
     cdp_data = str(cdp_buff).split('-------------------------')
 
     shared.kill_ssh_session(ssh_session)
-    addr_line_split = secondary_addrs_buff.split(
+    addr_line_split = system_ip_address_buff.split(
         'Interface                  IP-Address      OK? Method Status                Protocol')
     if len(addr_line_split) == 1:
-        addr_line_split = secondary_addrs_buff.split(
+        addr_line_split = system_ip_address_buff.split(
             'Interface              IP-Address      OK? Method Status                Protocol')
     addrs_nl_split = addr_line_split[1].split('\r\n')
 
@@ -579,10 +601,8 @@ def get_ios_hosts(ssh_session, prompt):
                 else:
                     status = '%s/%s' % (addrs_line[4],
                                         addrs_line[5])
-                tag = addrs_line[0]
-                d = {'ip_addr': addrs_line[1],
+                d = {'system_ip_address': addrs_line[1],
                      'name': addrs_line[0],
-                     'tag': tag,
                      'status': status
                      }
                 if d not in system_ip_list:
@@ -595,17 +615,14 @@ def get_ios_hosts(ssh_session, prompt):
     for subnet_line in local_subnets_lines:
         if subnet_line:
             subnet_split = subnet_line.split()
-            if shared.is_subnet(subnet_split[1]):
-                if 'Version 12.2' in system_info['sw_version']:
+            if subnet_split[0] != '^':
+                if shared.is_subnet(subnet_split[1]):
                     subnet = subnet_split[1]
-                    source_int = subnet_split[5]
-                else:
-                    subnet = subnet_split[1]
-                    source_int = subnet[5]
-                local_subnet_dict = {'subnet': subnet,
-                                     'source_int': source_int}
-                if local_subnet_dict not in subnet_list:
-                    subnet_list.append(local_subnet_dict)
+                    source_int = subnet_split[-1]
+                    local_subnet_dict = {'subnet': subnet,
+                                         'source_interface': source_int}
+                    if local_subnet_dict not in subnet_list:
+                        subnet_list.append(local_subnet_dict)
 
     cdp_list = shared.get_cdp_list(cdp_data)
 
@@ -624,7 +641,7 @@ def get_ios_hosts(ssh_session, prompt):
                         except ValueError:
                             continue
                     mac_vendor = shared.lookup_mac_vendor(cam_line[1].replace('.', ''))
-                    mac_addr_dict = {'mac_addr': cam_line[1],
+                    mac_addr_dict = {'mac_address': cam_line[1],
                                      'mac_vendor': mac_vendor,
                                      'type': cam_line[2],
                                      'port': cam_line[-1],
@@ -636,11 +653,11 @@ def get_ios_hosts(ssh_session, prompt):
         if arp_line:
             line = arp_line.split()
             for x in mac_list:
-                if x['mac_addr'] == line[3]:
+                if x['mac_address'] == line[3]:
 
-                    host_dict = {'ip_addr': line[1],
-                                 'mac_addr': line[3],
-                                 'adjacency_int': line[-1],
+                    host_dict = {'host_address': line[1],
+                                 'mac_address': line[3],
+                                 'adjacency_interface': line[-1],
                                  'mac_vendor': x['mac_vendor'],
                                  'type': x['type'],
                                  'port': x['port'],
@@ -656,6 +673,5 @@ def get_ios_hosts(ssh_session, prompt):
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
     data['discovery_list'] = cdp_list
-    # data['mac_list'] = mac_list
 
     return data
