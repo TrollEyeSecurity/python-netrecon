@@ -15,6 +15,8 @@ SSH_OUTDATED_CIPHER = '.no matching cipher found. Their offer: aes128-cbc,3des-c
 SSH_OUTDATED_PROTOCOL = 'Protocol major versions differ: 2 vs. 1\\r\\r\\n'
 PASSWORD = '.*[P|p]assword.*'
 PERMISSION_DENIED = 'Permission denied, please try again.'
+NETWORK_UNREACHABLE = '.Network is unreachable.'
+INVALID_KEY_LENGTH = '.Invalid key length.'
 
 # -----------
 # ssh prompts
@@ -42,9 +44,12 @@ IOS_SHOW_ARP = 'show arp | exclude Incomplete'
 IOS_SHOWIPINTBR = 'show ip int br | exclude unassigned'
 IOS_SHOW_CAM = 'show mac address-table | exclude All'
 IOS_SWITCH_SHOW_MODEL = 'show version | include Model Number'
+IOSx_SWITCH_SHOW_MODEL = 'show version | include Model number'
 IOS_S72033_RP_SHOW_MODEL = 'show version | include cisco WS-'
+IOS_C7200_SHOW_MODEL = 'show version | in processor'
 IOS_RTR_SHOW_MODEL = 'show version | include \*'
 IOS_SWITCH_SHOW_SERIALNUM = 'show version | include System Serial Number'
+IOSx_SWITCH_SHOW_SERIALNUM = 'show version | include System serial number'
 IOS_S72033_RP_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_RTR_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_SHOW_LICS = 'show version | include License Level'
@@ -63,8 +68,9 @@ NXOS_SHOW_ARP = 'show ip arp | exclude INCOMPLETE'
 # ------------------
 ASA_TERMPAGER0 = 'terminal pager 0'
 ASA_SHOWARP = 'show arp'
+ASA_SHOW_OS = 'show version | in Adaptive'
 ASA_SHOW_LOCAL_CONNECTIONS = 'show route | in C'
-ASA_SHOW_XLATE = 'show xlate type static'
+ASA_SHOW_XLATE = 'show xlate'  # todo: 8.2 = > may need to revisit
 ASA_SHOW_CONN = 'show conn'
 ASA_SHOW_SERIALNUM = 'show version | include Serial Number:'
 ASA_SHOW_MODEL = 'show version | include Hardware:'
@@ -132,6 +138,8 @@ def get_ssh_session(host, username, password):
         # 96 = using ssh v1
         # 95 = password denied
         # 94 = permission denied
+        # 93 = EOF
+        # 92 = network unreachable
         s = child.expect([SSH_NEW_KEY,
                           SSH_OUTDATED_KEX,
                           PASSWORD,
@@ -146,7 +154,10 @@ def get_ssh_session(host, username, password):
                           SSH_OUTDATED_PROTOCOL,
                           OPERATIONAL_TIMEOUT,
                           SSH_OUTDATED_CIPHER,
+                          NETWORK_UNREACHABLE,
+                          INVALID_KEY_LENGTH,
                           EOF])
+        print(s)
 
         if s == 0:
             child.sendline('yes')
@@ -159,7 +170,7 @@ def get_ssh_session(host, username, password):
             continue
 
         elif s == 2:
-            if passwd < 0:
+            if passwd > 0:
                 return 95, ''
             child.sendline(password)
             passwd += 1
@@ -189,7 +200,7 @@ def get_ssh_session(host, username, password):
             child.close()
             return 98, ''
 
-        elif s == 10:
+        elif s == 10 or s == 15:
             child.close()
             return 97, ''
 
@@ -210,7 +221,16 @@ def get_ssh_session(host, username, password):
             child = spawnu(ssh_session)
             continue
 
+        elif s == 14:
+            child.close()
+            return 92, ''
+
+        elif s == 16:
+            child.close()
+            return 93, ''
+
         else:
+            print(child.before)
             child.close()
             return 1, ''
 
@@ -268,6 +288,7 @@ def discover_os(ssh_session, prompt, password):
         else:
             infrastructure_os = {'os': 'unknown'}
 
+    print(infrastructure_os)
     return infrastructure_os, ssh_session, prompt
 
 
@@ -299,7 +320,7 @@ def kill_ssh_session(ssh_session):
         try:
             ssh_session.close()
         except pexceptions.ExceptionPexpect as e2:
-            print('ERROR: %s' % str(e2))
+            print('KILL_SSH_SESSION ERROR: %s' % str(e2))
 
 
 def get_cdp_list(cdp_data, os='ios'):
