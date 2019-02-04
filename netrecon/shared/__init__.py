@@ -157,8 +157,6 @@ def get_ssh_session(host, username, password):
                           NETWORK_UNREACHABLE,
                           INVALID_KEY_LENGTH,
                           EOF])
-        print(s)
-
         if s == 0:
             child.sendline('yes')
             continue
@@ -230,7 +228,6 @@ def get_ssh_session(host, username, password):
             return 93, ''
 
         else:
-            print(child.before)
             child.close()
             return 1, ''
 
@@ -287,8 +284,6 @@ def discover_os(ssh_session, prompt, password):
             infrastructure_os = {'os': 'ios'}
         else:
             infrastructure_os = {'os': 'unknown'}
-
-    print(infrastructure_os)
     return infrastructure_os, ssh_session, prompt
 
 
