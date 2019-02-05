@@ -426,7 +426,6 @@ def get_cdp_list(cdp_data, os='ios'):
             reg_native_vlan = search(r'(Native VLAN:.+?)\n', element)
 
             try:
-
                 # parse native vlan info and clean it up
                 discovery_list += [sub(r':\s+', ':', reg_native_vlan.group(0).strip())]
             except AttributeError:
@@ -436,7 +435,6 @@ def get_cdp_list(cdp_data, os='ios'):
             reg_duplex = search(r'(Duplex:.+?)\n', element)
 
             try:
-
                 # parse duplex info and clean it up
                 discovery_list += [sub(r':\s+', ':', reg_duplex.group(0).strip())]
             except AttributeError:
