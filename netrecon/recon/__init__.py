@@ -105,7 +105,7 @@ def get_panos_hosts(ssh_session, prompt):
         if e != '':
             entry = e.rstrip().split()
             if len(entry) == 7:
-                d = {'system_ip_address': entry[6], 'vlan': entry[5], 'name': entry[0], 'zone': entry[3]}
+                d = {'system_ip_address': entry[6], 'vlan': int(entry[5]), 'name': entry[0], 'zone': entry[3]}
                 if d not in system_ip_list:
                     system_ip_list.append(d)
 
@@ -444,10 +444,14 @@ def get_nxos_hosts(ssh_session, prompt):
         cam_line = cam_line.split()
         if cam_line:
             mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
+            try:
+                vlan = int(cam_line[1])
+            except ValueError:
+                vlan = cam_line[1]
             mac_addr_dict = {'mac_address': cam_line[2],
                              'type': cam_line[3],
                              'port': cam_line[-1],
-                             'vlan': cam_line[1],
+                             'vlan': vlan,
                              'mac_vendor': mac_vendor}
             if mac_addr_dict not in mac_list:
                 mac_list.append(mac_addr_dict)
