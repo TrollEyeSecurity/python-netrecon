@@ -5,8 +5,8 @@ setup(
     # Application name:
     name="netrecon",
 
-    # Version number (initial):
-    version="0.1",
+    # Version number:
+    version="0.8",
 
     # Application author details:
     author="Avery Rozar",
@@ -23,11 +23,12 @@ setup(
 
     #
     license="LICENSE.txt",
-    description="",
+    description="Netrecon is a tool used to pull useful data from network infrastructure devices. "
+                "The currently supported device types are - Cisco IOS, Cisco ASAOS, Cisco NX-OX, and PANOS",
 
     long_description=open("README.rst").read(),
 
     # Dependent packages (distributions)
-    install_requires=['pexpect',
-                      'redis',
+    install_requires=['pexpect==4.3.1',
+                      'netaddr==0.7.19'
                       ])
