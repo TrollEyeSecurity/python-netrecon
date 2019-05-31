@@ -15,33 +15,27 @@ def host_discovery(system_address, username, password):
     # 96 = using ssh v1
     # 95 = password denied
     # 94 = permission denied
+    # 93 = EOF
+    # 92 = network unreachable
+    # 1 = could not connect
 
     if ssh_session == 99:
-        print('ERROR: ssh session to %s timed out' % system_address)
         return 99
     if ssh_session == 98:
-        print('ERROR: %s refused the ssh session' % system_address)
         return 98
     if ssh_session == 97:
-        print('ERROR: system has a bad ssh key for %s' % system_address)
         return 97
     if ssh_session == 96:
-        print('VULNERABLE: %s is using ssh v1' % system_address)
         return 96
     if ssh_session == 95:
-        print('ERROR: password denied for %s' % system_address)
         return 95
     if ssh_session == 94:
-        print('ERROR: permission denied for %s' % system_address)
         return 94
-    if ssh_session == 92:
-        print('ERROR: network unreachable %s' % system_address)
-        return 92
     if ssh_session == 93:
-        print('ERROR: EOF for %s' % system_address)
         return 93
+    if ssh_session == 92:
+        return 92
     if ssh_session == 1:
-        print('ERROR: could not connect to %s' % system_address)
         return 1
     infrastructure_os, ssh_session, prompt = shared.discover_os(ssh_session, prompt, password)
     try:
@@ -443,7 +437,16 @@ def get_nxos_hosts(ssh_session, prompt):
     for cam_line in cam_lines:
         cam_line = cam_line.split()
         if cam_line:
-            mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
+            try:
+                if cam_line[0] in ('Legend:', '*', 'age', 'VLAN'):
+                    continue
+                mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
+            except IndexError as mac_vendor_error:
+                print(mac_vendor_error)
+                print('----------------------------------------------')
+                print('IndexError: mac_vendor - %s' % system_info)
+                print('ssh_session args: %s' % ssh_session.args)
+                return data
             try:
                 vlan = int(cam_line[1])
             except ValueError:
@@ -506,7 +509,7 @@ def get_ios_hosts(ssh_session, prompt):
             sw_version = i.rstrip()
 
     system_info['system_sw_version'] = sw_version
-    if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version']:
+    if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
@@ -515,7 +518,14 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
-        system_info['system_serial'] = switch_sn.split('\r\n')[1].split()[1]
+        try:
+            system_info['system_serial'] = switch_sn.split('\r\n')[1].split()[1]
+        except IndexError as system_info_error:
+            print(system_info_error)
+            print('----------------------------------------------')
+            print('IndexError: system_info[\'system_serial\'] - %s' % system_info)
+            print('ssh_session args: %s' % ssh_session.args)
+            return data
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
@@ -527,7 +537,7 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
-    elif '7200 Software' in system_info['system_sw_version']:
+    elif '7200 Software' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_C7200_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
