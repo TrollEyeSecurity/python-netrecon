@@ -6,11 +6,11 @@ setup(
     name="netrecon",
 
     # Version number:
-    version="0.8",
+    version="0.9",
 
     # Application author details:
     author="Avery Rozar",
-    author_email="avery.rozar@insecure-it.com",
+    author_email="avery.rozar@critical-sec.com",
 
     # Packages
     packages=find_packages(exclude=('tests', 'docs')),
