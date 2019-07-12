@@ -328,17 +328,16 @@ def get_asa_hosts(ssh_session, prompt):
     for l in nat_lines:
         d = {}
         split_flags = l.split('flags')
-
-        split_to = str(split_flags[0]).split('to')
-        to_int = split_to[1].split(':')
-        d['to_int:'] = to_int[0].strip()
-        d['to_list:'] = [x.rstrip().strip() for x in to_int[1].split(',')]
-        split_from = str(split_to[0]).split('from')
-        from_int = split_from[1].split(':')
-        d['from_int:'] = from_int[0].strip()
-        d['from_list:'] = [x.rstrip().strip() for x in from_int[1].split(',')]
-        nat_list.append(d)
-
+        if 'sr' in split_flags[1]:
+            split_to = str(split_flags[0]).split('to')
+            to_int = split_to[1].split(':')
+            d['to_int:'] = to_int[0].strip()
+            d['to_list:'] = [x.rstrip().strip() for x in to_int[1].split(',')]
+            split_from = str(split_to[0]).split('from')
+            from_int = split_from[1].split(':')
+            d['from_int:'] = from_int[0].strip()
+            d['from_list:'] = [x.rstrip().strip() for x in from_int[1].split(',')]
+            nat_list.append(d)
     data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info
