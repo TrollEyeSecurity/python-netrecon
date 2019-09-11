@@ -511,7 +511,7 @@ def get_ios_hosts(ssh_session, prompt):
     if  system_info['system_sw_version'] in ('Version 12.2',
                                              'Version 12.4(24)T5',
                                              'IOS-XE',
-                                             'C3900E'):
+                                             'C3900e'):
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
