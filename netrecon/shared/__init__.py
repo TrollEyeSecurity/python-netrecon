@@ -105,9 +105,7 @@ PAN_UNKNOWN_CMD = '.*Unknown command:.*'
 # ------------
 
 ipaddr_regex = r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}'
-
 subnet_regex = r'((?:[0-9]{1,3}\.){3}[0-9]{1,3}/\d+)'
-
 mac_addr_regex = r'(([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})'
 
 
