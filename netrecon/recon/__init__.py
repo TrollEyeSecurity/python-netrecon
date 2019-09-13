@@ -554,7 +554,13 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
-        system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+        try:
+            system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+        except IndexError as system_model_error:
+            print('----------------------------------------------')
+            print('IndexError: system_info[\'system_model\'] - %s' % system_model_error)
+            print('ssh_session args: %s' % ssh_session.args)
+            return data
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
