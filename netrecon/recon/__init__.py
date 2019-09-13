@@ -532,7 +532,13 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
-        system_info['system_serial'] = switch_sn.split('System Serial Number')[2].split(':')[1].split()[0]
+        try:
+            system_info['system_serial'] = switch_sn.split('System Serial Number')[2].split(':')[1].split()[0]
+        except IndexError as system_system_serial_error:
+            print('----------------------------------------------')
+            print('IndexError: system_info[\'system_serial\'] - %s' % system_system_serial_error)
+            print('ssh_session args: %s' % ssh_session.args)
+            return data
 
     if 'Version 12.2' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_MODEL)
@@ -553,7 +559,13 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
-        system_info['system_model'] = switch_model.split('Model Number')[2].split(':')[1].split()[0]
+        try:
+            system_info['system_model'] = switch_model.split('Model Number')[2].split(':')[1].split()[0]
+        except IndexError as system_model_error:
+            print('----------------------------------------------')
+            print('IndexError: system_info[\'system_model\'] - %s' % system_model_error)
+            print('ssh_session args: %s' % ssh_session.args)
+            return data
 
     ssh_session.sendline(shared.IOS_SHOWIPINTBR)
     ssh_session.expect([TIMEOUT, prompt])
