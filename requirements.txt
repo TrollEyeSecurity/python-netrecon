@@ -1,2 +1,2 @@
-pexpect==4.3.1
 netaddr==0.7.19
+pexpect==4.7.0
