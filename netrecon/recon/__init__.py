@@ -240,7 +240,6 @@ def get_asa_hosts(ssh_session, prompt):
         ssh_session.sendline('show xlate')
     ssh_session.expect([TIMEOUT, prompt])
     nat_buff = ssh_session.before
-
     shared.kill_ssh_session(ssh_session)
 
     asa_interfaces_split = asa_interfaces_buff.split('!')
@@ -328,15 +327,15 @@ def get_asa_hosts(ssh_session, prompt):
     for l in nat_lines:
         d = {}
         split_flags = l.split('flags')
-        if 'sr' in split_flags[1]:
+        if 's' in split_flags[1]:
             split_to = str(split_flags[0]).split('to')
             to_int = split_to[1].split(':')
-            d['to_int:'] = to_int[0].strip()
-            d['to_list:'] = [x.rstrip().strip() for x in to_int[1].split(',')]
+            d['to_int'] = to_int[0].strip()
+            d['to_list'] = [x.rstrip().strip() for x in to_int[1].split(',')]
             split_from = str(split_to[0]).split('from')
             from_int = split_from[1].split(':')
-            d['from_int:'] = from_int[0].strip()
-            d['from_list:'] = [x.rstrip().strip() for x in from_int[1].split(',')]
+            d['from_int'] = from_int[0].strip()
+            d['from_list'] = [x.rstrip().strip() for x in from_int[1].split(',')]
             nat_list.append(d)
     data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
@@ -504,11 +503,12 @@ def get_ios_hosts(ssh_session, prompt):
     for i in os_software_split:
         old_ios = search(r'^IOS\s+\(tm\)', i)
         ios_ver = search(r'(^Cisco\s+IOS\s+Software,)', i)
-        if old_ios or ios_ver:
+        ios_xe_ver = search(r'(^Cisco\s+IOS\s+XE\s+Software,)', i)
+        if old_ios or ios_ver or ios_xe_ver:
             sw_version = i.rstrip()
 
     system_info['system_sw_version'] = sw_version
-    if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version']:
+    if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version'] or 'IOS XE' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
@@ -536,7 +536,7 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
-    elif '7200 Software' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version']:
+    elif '7200 Software' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version'] or 'IOS XE' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_C7200_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
@@ -546,6 +546,8 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+        if system_info['system_model'] == 'number':
+            system_info['system_model'] = switch_model.split('\r\n')[1].split(':')[1].strip()
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
