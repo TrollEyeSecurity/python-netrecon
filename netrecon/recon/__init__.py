@@ -502,10 +502,17 @@ def get_ios_hosts(ssh_session, prompt):
     os_software_split = os_software.split('\r\n')
     for i in os_software_split:
         old_ios = search(r'^IOS\s+\(tm\)', i)
-        ios_ver = search(r'(^Cisco\s+IOS\s+Software,)', i)
-        ios_xe_ver = search(r'(^Cisco\s+IOS\s+XE\s+Software,)', i)
-        if old_ios or ios_ver or ios_xe_ver:
+        if old_ios:
             sw_version = i.rstrip()
+            break
+        ios_ver = search(r'(^Cisco\s+IOS\s+Software,)', i)
+        if ios_ver:
+            sw_version = i.rstrip()
+            break
+        ios_xe_ver = search(r'(^Cisco\s+IOS\s+XE\s+Software,)', i)
+        if ios_xe_ver:
+            sw_version = i.rstrip()
+            break
 
     system_info['system_sw_version'] = sw_version
     if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version'] or 'IOS XE' in system_info['system_sw_version']:
