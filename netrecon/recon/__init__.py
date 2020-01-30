@@ -513,7 +513,7 @@ def get_ios_hosts(ssh_session, prompt):
         if ios_xe_ver:
             sw_version = i.rstrip()
             break
-
+            
     system_info['system_sw_version'] = sw_version
     if 'Version 12.2' in system_info['system_sw_version'] or 'Version 12.4(24)T5' in system_info['system_sw_version'] or 'IOS-XE' in system_info['system_sw_version'] or 'IOS XE' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOS_S72033_RP_SHOW_SERIALNUM)
@@ -591,7 +591,8 @@ def get_ios_hosts(ssh_session, prompt):
             cam_lines = cam_buff.split('-------+---------------+--------+---------------------+--------------------')[1].split('\r\n')
         elif 'C3560' in system_info['system_sw_version'] or\
                 'C3750' in system_info['system_sw_version'] or\
-                'IOS-XE' in system_info['system_sw_version'] or\
+                'IOS-XE' in system_info['system_sw_version'] or \
+                'IOS XE' in system_info['system_sw_version'] or \
                 'C2960' in system_info['system_sw_version']:
             cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
         else:
