@@ -238,7 +238,6 @@ def get_asa_hosts(ssh_session, prompt):
     if ssh_session.expect([TIMEOUT, '.Invalid input detected.', prompt]) == 1:
         ssh_session.expect([TIMEOUT, prompt])
         ssh_session.sendline('show xlate')
-    ssh_session.expect([TIMEOUT, prompt])
     nat_buff = ssh_session.before
     shared.kill_ssh_session(ssh_session)
 
