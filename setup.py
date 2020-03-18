@@ -6,7 +6,7 @@ setup(
     name="netrecon",
 
     # Version number:
-    version="0.9",
+    version="0.10",
 
     # Application author details:
     author="Avery Rozar",
@@ -29,6 +29,6 @@ setup(
     long_description=open("README.rst").read(),
 
     # Dependent packages (distributions)
-    install_requires=['pexpect==4.3.1',
+    install_requires=['pexpect==4.8.0',
                       'netaddr==0.7.19'
                       ])
