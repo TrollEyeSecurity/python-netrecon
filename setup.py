@@ -1,12 +1,13 @@
 #!/usr/bin/python
 from setuptools import setup, find_packages
+from netrecon import __name__, __version__
 
 setup(
     # Application name:
-    name="netrecon",
+    name=__name__,
 
     # Version number:
-    version="0.10",
+    version=__version__,
 
     # Application author details:
     author="Avery Rozar",
