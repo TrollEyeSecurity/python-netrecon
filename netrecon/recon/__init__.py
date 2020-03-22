@@ -2,6 +2,7 @@ from netrecon import shared
 from pexpect import TIMEOUT
 from re import search, compile as recompile
 from netaddr import IPAddress
+from ipaddress import IPv4Network, IPv4Address
 import time
 
 
@@ -228,6 +229,12 @@ def get_asa_hosts(ssh_session, prompt):
     local_subnets_buff = ssh_session.before
     local_subnets_lines = local_subnets_buff.split('\r\n')
 
+    ssh_session.sendline(shared.ASA_SHOW_IP_LOCAL_POOLS)
+    ssh_session.expect([TIMEOUT, prompt])
+    time.sleep(.1)
+    local_ip_local_pools_buff = ssh_session.before
+    local_ip_local_pools_lines = local_ip_local_pools_buff.split('\r\n')
+
     ssh_session.sendline(shared.ASA_SHOWARP)
     ssh_session.expect([TIMEOUT, prompt])
     time.sleep(.1)
@@ -269,7 +276,35 @@ def get_asa_hosts(ssh_session, prompt):
                 d['vlan'] = 0
             if d not in system_ip_list:
                 system_ip_list.append(d)
-
+    try:
+        local_ip_local_pools_lines.pop(-1)
+    except IndexError:
+        pass
+    for ip_local_pool in local_ip_local_pools_lines[1:]:
+        ip_local_pool_split = ip_local_pool.split()
+        name = ip_local_pool_split[3]
+        ip_range = ip_local_pool_split[4]
+        f_host = ip_range.split('-')[0].split('.')[:-1]
+        network = '.'.join(f_host) + '.0'
+        try:
+            netmask = ip_local_pool_split[6]
+        except IndexError:
+            CLASS_A = '255.0.0.0'
+            CLASS_B = '255.240.0.0'
+            CLASS_C = '255.255.0.0'
+            if IPv4Address(network) in IPv4Network(("10.0.0.0", CLASS_A)):
+                netmask = CLASS_A
+            elif IPv4Address(network) in IPv4Network(("172.16.0.0", CLASS_B)):
+                netmask = CLASS_B
+            elif IPv4Address(network) in IPv4Network(("192.168.0.0", CLASS_C)):
+                netmask = CLASS_C
+            else:
+                netmask = None
+        if shared.is_subnet(netmask):
+            local_subnet_dict = {'subnet': '%s/%s' % (network, IPAddress(netmask).netmask_bits()),
+                                 'source_interface': name}
+            if local_subnet_dict not in subnet_list:
+                subnet_list.append(local_subnet_dict)
     for subnet_line in local_subnets_lines:
         subnet_line_list = list(filter(None, subnet_line.split(' ')))
         try:
@@ -285,7 +320,6 @@ def get_asa_hosts(ssh_session, prompt):
                 if local_subnet_dict not in subnet_list:
                     subnet_list.append(local_subnet_dict)
     for a in arp_lines:
-
         arp_split = a.split(' ')
         try:
             mac_addr = arp_split[2].replace('.', '')
