@@ -531,7 +531,6 @@ def get_ios_hosts(ssh_session, prompt):
     ssh_session.sendline(shared.SHOW_OS)
     ssh_session.expect([TIMEOUT, prompt])
     os_software = ssh_session.before
-
     os_software_split = os_software.split('\r\n')
     for i in os_software_split:
         old_ios = search(r'^IOS\s+\(tm\)', i)
@@ -553,12 +552,12 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
         system_info['system_serial'] = switch_sn.split('show version | include Processor board ID\r\nProcessor board ID')[1].split('\r\n')[0].lstrip()
-    elif 'Version 15.2' in system_info['system_sw_version']:
+    elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
         try:
-            system_info['system_serial'] = switch_sn.split('\r\n')[1].split()[1]
+            system_info['system_serial'] = switch_sn.split('\r\n')[1].split()[-1]
         except IndexError as system_info_error:
             print(system_info_error)
             print('----------------------------------------------')
@@ -581,7 +580,7 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
-    elif 'Version 15.2' in system_info['system_sw_version']:
+    elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
