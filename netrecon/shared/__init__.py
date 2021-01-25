@@ -12,6 +12,7 @@ SSH_BAD_KEY = 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!'
 SSH_REFUSED = 'Connection refused'
 SSH_OUTDATED_KEX_1 = '.no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
 SSH_OUTDATED_KEX_2 = '.no matching key exchange method found. Their offer: diffie-hellman-group-exchange-sha1'
+SSH_OUTDATED_KEX_3 = '.no matching key exchange method found. Their offer: diffie-hellman-group14-sha1'
 SSH_OUTDATED_CIPHER = '.no matching cipher found. Their offer: aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc'
 SSH_OUTDATED_PROTOCOL = 'Protocol major versions differ: 2 vs. 1\\r\\r\\n'
 PASSWORD = '.*[P|p]assword.*'
@@ -157,7 +158,8 @@ def get_ssh_session(host, username, password):
                           NETWORK_UNREACHABLE,
                           INVALID_KEY_LENGTH,
                           EOF,
-                          SSH_OUTDATED_KEX_2])
+                          SSH_OUTDATED_KEX_2,
+                          SSH_OUTDATED_KEX_3])
 
         if s == 0:
             child.sendline('yes')
@@ -172,6 +174,11 @@ def get_ssh_session(host, username, password):
         elif s == 17:
             # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
             ssh_session = 'ssh %s@%s -oKexAlgorithms=+diffie-hellman-group-exchange-sha1' % (username, host)  # outdated kex
+            child = spawnu(ssh_session)
+            continue
+        elif s == 18:
+            # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
+            ssh_session = 'ssh %s@%s -oKexAlgorithms=+diffie-hellman-group14-sha1' % (username, host)  # outdated kex
             child = spawnu(ssh_session)
             continue
 
