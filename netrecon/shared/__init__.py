@@ -464,7 +464,7 @@ def get_cdp_list(cdp_data, os='ios'):
 
             # iterate the key, value pairs and change empty value to None
             for k, v in discovery_dictionary.items():
-                if v is '':
+                if v == '':
                     discovery_dictionary[k] = None
 
             if discovery_dictionary['Device ID'] is not None:
