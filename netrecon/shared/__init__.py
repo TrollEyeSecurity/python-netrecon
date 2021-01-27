@@ -10,10 +10,8 @@ import ipaddress
 SSH_NEW_KEY = '.Are you sure you want to continue connecting (yes/no)?'
 SSH_BAD_KEY = 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!'
 SSH_REFUSED = 'Connection refused'
-SSH_OUTDATED_KEX_1 = '.no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
-SSH_OUTDATED_KEX_2 = '.no matching key exchange method found. Their offer: diffie-hellman-group-exchange-sha1'
-SSH_OUTDATED_KEX_3 = '.no matching key exchange method found. Their offer: diffie-hellman-group14-sha1'
-SSH_OUTDATED_CIPHER = '.no matching cipher found. Their offer: aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc'
+SSH_OUTDATED_KEX = '.no matching key exchange method found.'
+SSH_OUTDATED_CIPHER = '.no matching cipher found.'
 SSH_OUTDATED_PROTOCOL = 'Protocol major versions differ: 2 vs. 1\\r\\r\\n'
 PASSWORD = '.*[P|p]assword.*'
 PERMISSION_DENIED = 'Permission denied, please try again.'
@@ -142,7 +140,7 @@ def get_ssh_session(host, username, password):
         # 93 = EOF
         # 92 = network unreachable
         s = child.expect([SSH_NEW_KEY,
-                          SSH_OUTDATED_KEX_1,
+                          SSH_OUTDATED_KEX,
                           PASSWORD,
                           PERMISSION_DENIED,
                           GT_PROMPT,
@@ -157,9 +155,8 @@ def get_ssh_session(host, username, password):
                           SSH_OUTDATED_CIPHER,
                           NETWORK_UNREACHABLE,
                           INVALID_KEY_LENGTH,
-                          EOF,
-                          SSH_OUTDATED_KEX_2,
-                          SSH_OUTDATED_KEX_3])
+                          EOF
+                          ])
 
         if s == 0:
             child.sendline('yes')
@@ -167,18 +164,10 @@ def get_ssh_session(host, username, password):
 
         elif s == 1:
             # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
-            ssh_session = 'ssh %s@%s -oKexAlgorithms=+diffie-hellman-group1-sha1' % (username, host)  # outdated kex
-            child = spawnu(ssh_session)
-            continue
 
-        elif s == 17:
-            # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
-            ssh_session = 'ssh %s@%s -oKexAlgorithms=+diffie-hellman-group-exchange-sha1' % (username, host)  # outdated kex
-            child = spawnu(ssh_session)
-            continue
-        elif s == 18:
-            # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
-            ssh_session = 'ssh %s@%s -oKexAlgorithms=+diffie-hellman-group14-sha1' % (username, host)  # outdated kex
+            child_buffer_split = child.buffer.split()
+            their_offer = child_buffer_split[-1]
+            ssh_session = 'ssh %s@%s -oKexAlgorithms=+%s' % (username, host, their_offer)  # outdated kex
             child = spawnu(ssh_session)
             continue
 
@@ -225,12 +214,10 @@ def get_ssh_session(host, username, password):
             child.close()
             return 99, ''
 
-        elif s == 12:
-            child.close()
-            return 93, ''
-
         elif s == 13:
-            ssh_session += ' -c aes128-cbc'  # try aes128-cbc
+            child_buffer_split = child.buffer.split()
+            their_offer = child_buffer_split[-1]
+            ssh_session += ' -c %s' % their_offer  # try aes128-cbc
             child = spawnu(ssh_session)
             continue
 
@@ -304,7 +291,7 @@ def discover_os(ssh_session, prompt, password):
 
 def lookup_mac_vendor(mac_lookup_string):
     if platform.system() == 'Darwin':
-        nmap_mac_prefixes = '/usr/local/Cellar/nmap/7.70/share/nmap/nmap-mac-prefixes'
+        nmap_mac_prefixes = '/usr/local/Cellar/nmap/7.91/share/nmap/nmap-mac-prefixes'
     else:
         nmap_mac_prefixes = '/usr/share/nmap/nmap-mac-prefixes'
 
