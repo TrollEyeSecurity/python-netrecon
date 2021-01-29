@@ -163,11 +163,9 @@ def get_ssh_session(host, username, password):
             continue
 
         elif s == 1:
-            # print('INFO: Using outdated SSH Key Exchange for %s\nKEX: diffie-hellman-group1-sha1' % host)
-
             child_buffer_split = child.buffer.split()
             their_offer = child_buffer_split[-1]
-            ssh_session = 'ssh %s@%s -oKexAlgorithms=+%s' % (username, host, their_offer)  # outdated kex
+            ssh_session = 'ssh %s@%s -oKexAlgorithms=+%s' % (username, host, their_offer.split(',')[-1])  # outdated kex
             child = spawnu(ssh_session)
             continue
 
@@ -238,7 +236,6 @@ def discover_os(ssh_session, prompt, password):
     infrastructure_os = dict()
     ssh_session.sendline(IOS_TERMLEN0)
     cmd_response = ssh_session.expect([TIMEOUT, PAN_UNKNOWN_CMD, ERROR, BASH_ERROR, prompt])
-
     if cmd_response == 1:
         ssh_session.sendline(PAN_SET_CLI_PAGER_OFF)
         cmd_response = ssh_session.expect([TIMEOUT, prompt])
@@ -277,6 +274,19 @@ def discover_os(ssh_session, prompt, password):
     if cmd_response == 3:
         infrastructure_os = {'os': 'linux'}
     elif cmd_response == 4:
+        if prompt not in (HASH_PROMPT, HASH_PROMPT_W_S):
+            ssh_session.sendline(ENABLE)
+            cmd_response = ssh_session.expect([TIMEOUT, PASSWORD])
+            if cmd_response == 1:
+                ssh_session.sendline(password)
+                cmd_response = ssh_session.expect([TIMEOUT, PASSWORD, HASH_PROMPT, HASH_PROMPT_W_S])
+                if cmd_response == 1:
+                    print('ERROR: password is incorrect')
+                    return
+                if cmd_response == 2:
+                    prompt = HASH_PROMPT
+                if cmd_response == 3:
+                    prompt = HASH_PROMPT_W_S
         ssh_session.sendline(SHOW_OS)
         ssh_session.expect([TIMEOUT, prompt])
         show_os_buff = ssh_session.before
