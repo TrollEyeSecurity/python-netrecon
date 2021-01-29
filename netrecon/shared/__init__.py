@@ -71,7 +71,7 @@ ASA_SHOWARP = 'show arp'
 ASA_SHOW_OS = 'show version | in Adaptive'
 ASA_SHOW_LOCAL_CONNECTIONS = 'show route | in C'
 ASA_SHOW_IP_LOCAL_POOLS = 'show run ip local pool'
-ASA_SHOW_XLATE = 'show xlate'  # todo: 8.2 = > may need to revisit
+ASA_SHOW_XLATE = 'show xlate'
 ASA_SHOW_CONN = 'show conn'
 ASA_SHOW_SERIALNUM = 'show version | include Serial Number:'
 ASA_SHOW_MODEL = 'show version | include Hardware:'
