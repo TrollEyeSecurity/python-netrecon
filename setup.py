@@ -11,7 +11,7 @@ setup(
 
     # Application author details:
     author="Avery Rozar",
-    author_email="avery.rozar@critical-sec.com",
+    author_email="avery.rozar@trolleyesecurity.com",
 
     # Packages
     packages=find_packages(exclude=('tests', 'docs')),
@@ -20,7 +20,7 @@ setup(
     include_package_data=True,
 
     # Details
-    url="https://www.critical-sec.com",
+    url="https://www.trolleyesecurity.com",
 
     #
     license="LICENSE.txt",
@@ -31,5 +31,5 @@ setup(
 
     # Dependent packages (distributions)
     install_requires=['pexpect==4.8.0',
-                      'netaddr==0.7.19'
+                      'netaddr==0.8.0'
                       ])
