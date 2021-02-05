@@ -3,5 +3,5 @@
 # --------------
 
 __name__ = 'netrecon'
-__version__ = 0.17
+__version__ = 0.18
 __author__ = 'Avery Rozar: avery.rozar@trolleyesecurity.com'

@@ -556,7 +556,7 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOS_RTR_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
-        system_info['system_serial'] = switch_sn.split(' ')[-1]
+        system_info['system_serial'] = switch_sn.split(' ')[-1].split('\r\n')[0]
     elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
@@ -589,7 +589,7 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.sendline(shared.IOS_RTR_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
-        system_info['system_model'] = switch_model.split()[-2]
+        system_info['system_model'] = switch_model.split()[-3]
     elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
