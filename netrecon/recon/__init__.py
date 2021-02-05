@@ -552,6 +552,11 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_sn = ssh_session.before
         system_info['system_serial'] = switch_sn.split('show version | include Processor board ID\r\nProcessor board ID')[1].split('\r\n')[0].lstrip()
+    elif '2800 Software' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_RTR_SHOW_SERIALNUM)
+        ssh_session.expect([TIMEOUT, prompt])
+        switch_sn = ssh_session.before
+        system_info['system_serial'] = switch_sn.split(' ')[-1]
     elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
@@ -580,6 +585,11 @@ def get_ios_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         switch_model = ssh_session.before
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
+    elif '2800 Software' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_RTR_SHOW_MODEL)
+        ssh_session.expect([TIMEOUT, prompt])
+        switch_model = ssh_session.before
+        system_info['system_model'] = switch_model.split()[-2]
     elif 'Version 15.' in system_info['system_sw_version']:
         ssh_session.sendline(shared.IOSx_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
@@ -604,34 +614,44 @@ def get_ios_hosts(ssh_session, prompt):
     ssh_session.sendline(shared.IOS_SHOW_ARP)
     ssh_session.expect([TIMEOUT, prompt])
     arp_buff = ssh_session.before
-    arp_lines = arp_buff.split('\r\n')[5:]
+
+    if '2800 Software' in system_info['system_sw_version']:
+        arp_lines = arp_buff.split('\r\n')[2:]
+    else:
+        arp_lines = arp_buff.split('\r\n')[5:]
     arp_lines.pop(-1)
 
-    ssh_session.sendline(shared.IOS_SHOW_CAM)
-    if ssh_session.expect([TIMEOUT, '.Invalid input detected.', prompt]) == 1:
-        ssh_session.expect([TIMEOUT, prompt])
-        ssh_session.sendline('show mac-address-table | exclude All')
-        try_again = ssh_session.expect([TIMEOUT, prompt, '.Invalid input detected.'])
-        if try_again == 1:
-            cam_buff = ssh_session.before
-            cam_lines = cam_buff.split('------+----------------+--------+-----+--------------------------')[1].split('\r\n')
-        else:
-            cam_lines = ['']
+    if '2800 Software' in system_info['system_sw_version']:
+        cam_lines = [1]
     else:
-        cam_buff = ssh_session.before
-        if '4500 L3' in system_info['system_sw_version'] or '4000 L3' in system_info['system_sw_version']:
-            cam_lines = cam_buff.split('-------+---------------+--------+---------------------+--------------------')[1].split('\r\n')
-        elif 'C3560' in system_info['system_sw_version'] or\
-                'C3750' in system_info['system_sw_version'] or\
-                'IOS-XE' in system_info['system_sw_version'] or \
-                'IOS XE' in system_info['system_sw_version'] or \
-                'C2960' in system_info['system_sw_version']:
-            cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
+        ssh_session.sendline(shared.IOS_SHOW_CAM)
+        if ssh_session.expect([TIMEOUT, '.Invalid input detected.', prompt]) == 1:
+            ssh_session.expect([TIMEOUT, prompt])
+            ssh_session.sendline('show mac-address-table | exclude All')
+            try_again = ssh_session.expect([TIMEOUT, prompt, '.Invalid input detected.'])
+            if try_again == 1:
+                cam_buff = ssh_session.before
+                cam_lines = cam_buff.split('------+----------------+--------+-----+--------------------------')[
+                    1].split('\r\n')
+            else:
+                cam_lines = ['']
         else:
-            cam_lines = cam_buff.split('------+----------------+--------+-----+----------+--------------------------')[1].split('\r\n')
-
+            cam_buff = ssh_session.before
+            if '4500 L3' in system_info['system_sw_version'] or '4000 L3' in system_info['system_sw_version']:
+                cam_lines = \
+                cam_buff.split('-------+---------------+--------+---------------------+--------------------')[1].split(
+                    '\r\n')
+            elif 'C3560' in system_info['system_sw_version'] or \
+                    'C3750' in system_info['system_sw_version'] or \
+                    'IOS-XE' in system_info['system_sw_version'] or \
+                    'IOS XE' in system_info['system_sw_version'] or \
+                    'C2960' in system_info['system_sw_version']:
+                cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
+            else:
+                cam_lines = \
+                cam_buff.split('------+----------------+--------+-----+----------+--------------------------')[1].split(
+                    '\r\n')
     cam_lines.pop(-1)
-
     ssh_session.sendline(shared.IOS_SHOW_CDP_DETAIL)
     ssh_session.expect([TIMEOUT, prompt])
     cdp_buff = ssh_session.before
@@ -703,23 +723,32 @@ def get_ios_hosts(ssh_session, prompt):
                                      'vlan':  vlan_id}
                     if mac_addr_dict not in mac_list:
                         mac_list.append(mac_addr_dict)
-
     for arp_line in arp_lines:
         if arp_line:
             line = arp_line.split()
-            for x in mac_list:
-                if x['mac_address'] == line[3]:
+            if '2800 Software' in system_info['system_sw_version']:
+                mac_addr = line[3]
+                mac_vendor = shared.lookup_mac_vendor(mac_addr.replace('.', ''))
+                host_dict = {'host_address': line[1],
+                             'mac_address': mac_addr,
+                             'adjacency_interface': line[-1],
+                             'mac_vendor': mac_vendor
+                             }
+                if host_dict not in host_list:
+                    host_list.append(host_dict)
+            else:
+                for x in mac_list:
+                    if x['mac_address'] == line[3]:
+                        host_dict = {'host_address': line[1],
+                                     'mac_address': line[3],
+                                     'adjacency_interface': line[-1],
+                                     'mac_vendor': x['mac_vendor'],
+                                     'type': x['type'],
+                                     'port': x['port'],
+                                     'vlan': x['vlan']}
 
-                    host_dict = {'host_address': line[1],
-                                 'mac_address': line[3],
-                                 'adjacency_interface': line[-1],
-                                 'mac_vendor': x['mac_vendor'],
-                                 'type': x['type'],
-                                 'port': x['port'],
-                                 'vlan': x['vlan']}
-
-                    if host_dict not in host_list:
-                        host_list.append(host_dict)
+                        if host_dict not in host_list:
+                            host_list.append(host_dict)
 
     # todo: add ios nat
     # data['nat_list'] = nat_list
