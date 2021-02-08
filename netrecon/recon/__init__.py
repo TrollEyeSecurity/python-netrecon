@@ -202,6 +202,7 @@ def get_asa_hosts(ssh_session, prompt):
     subnet_list = list()
     system_ip_list = list()
     nat_list = list()
+    ipsec_tunnels = list()
 
     ssh_session.expect([TIMEOUT, prompt])
     ssh_session.sendline(shared.ASA_SHOW_OS)
@@ -247,6 +248,12 @@ def get_asa_hosts(ssh_session, prompt):
         ssh_session.sendline('show xlate')
     nat_buff = ssh_session.before
     shared.kill_ssh_session(ssh_session)
+
+    ssh_session.sendline(shared.ASA_SHOW_CRYPTO_IPSEC_SA_DETAIL)
+    ssh_session.expect([TIMEOUT, prompt])
+    time.sleep(.1)
+    ipsec_sa_buff = ssh_session.before
+    ipsec_sa_intefaces = ipsec_sa_buff.split('interface:')
 
     asa_interfaces_split = asa_interfaces_buff.split('!')
     asa_interfaces_split.pop(0)
@@ -370,6 +377,23 @@ def get_asa_hosts(ssh_session, prompt):
             d['from_int'] = from_int[0].strip()
             d['from_list'] = [x.rstrip().strip() for x in from_int[1].split(',')]
             nat_list.append(d)
+    for int_element in ipsec_sa_intefaces:
+        if int_element:
+            tunnel = int_element.split('Crypto map tag:')
+            remote_ident_lines = recompile('(remote ident \(addr\/mask\/prot\/port\):)(\s*)(\(.*\))')
+            networks = list()
+            for tunnel_element in tunnel:
+                s = remote_ident_lines.search(tunnel_element)
+                if s:
+                    net_element = s.groups(-1)
+                    net_element.replace('(', '')
+                    net_element.replace(')', '')
+                    net_element_split = net_element.split('/')
+                    net = net_element_split[0]
+                    mask = net_element_split[1]
+                    networks.append({'network': net, 'subnet_mask': mask})
+            ipsec_tunnels.append({'tunnel_name': tunnel[0].strip(), 'networks': networks})
+    data['ipsec_tunnels'] = ipsec_tunnels
     data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info

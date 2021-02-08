@@ -76,6 +76,7 @@ ASA_SHOW_CONN = 'show conn'
 ASA_SHOW_SERIALNUM = 'show version | include Serial Number:'
 ASA_SHOW_MODEL = 'show version | include Hardware:'
 ASA_SHOW_INTERFACE = 'show running-config interface'
+ASA_SHOW_CRYPTO_IPSEC_SA_DETAIL = 'show crypto ipsec sa detail'
 
 
 # ------------------
