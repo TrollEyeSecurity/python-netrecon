@@ -249,14 +249,13 @@ def get_asa_hosts(ssh_session, prompt):
         ssh_session.expect([TIMEOUT, prompt])
         ssh_session.sendline('show xlate')
     nat_buff = ssh_session.before
-    shared.kill_ssh_session(ssh_session)
-
     ssh_session.sendline(shared.ASA_SHOW_CRYPTO_IPSEC_SA_DETAIL)
     ssh_session.expect([TIMEOUT, prompt])
     time.sleep(.1)
     ipsec_sa_buff = ssh_session.before
     ipsec_sa_intefaces = ipsec_sa_buff.split('interface:')
 
+    shared.kill_ssh_session(ssh_session)
     asa_interfaces_split = asa_interfaces_buff.split('!')
     asa_interfaces_split.pop(0)
 
