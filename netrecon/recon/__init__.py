@@ -54,6 +54,8 @@ def host_discovery(system_address, username, password):
                 shared.kill_ssh_session(ssh_session)
     except KeyError as e:
         print('HOST_DISCOVERY EXCEPTION ERROR: %s' % str(e))
+    except TypeError as e:
+        print('HOST_DISCOVERY EXCEPTION ERROR: %s' % str(e))
     return data
 
 
