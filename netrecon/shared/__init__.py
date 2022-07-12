@@ -249,8 +249,7 @@ def discover_os(ssh_session, prompt, password):
             ssh_session.sendline(password)
             cmd_response = ssh_session.expect([TIMEOUT, PASSWORD, HASH_PROMPT, HASH_PROMPT_W_S])
             if cmd_response == 1:
-                print('ERROR: password is incorrect')
-                return
+                return 'ERROR: enable password is incorrect', ssh_session, prompt
             if cmd_response == 2:
                 prompt = HASH_PROMPT
             if cmd_response == 3:
