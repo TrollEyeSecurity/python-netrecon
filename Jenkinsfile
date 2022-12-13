@@ -1,5 +1,7 @@
 pipeline {
-    agent any
+    agent  {
+        label 'production'
+    }
     stages {
         stage('Build and push image') {
             steps {
