@@ -13,6 +13,7 @@ SSH_REFUSED = 'Connection refused'
 SSH_OUTDATED_KEX = '.no matching key exchange method found.'
 SSH_OUTDATED_CIPHER = '.no matching cipher found.'
 SSH_OUTDATED_PROTOCOL = 'Protocol major versions differ: 2 vs. 1\\r\\r\\n'
+SSH_OUTDATED_HOST_KEY = '.no matching host key type found.'
 PASSWORD = '.*[P|p]assword.*'
 PERMISSION_DENIED = 'Permission denied, please try again.'
 NETWORK_UNREACHABLE = '.Network is unreachable.'
@@ -156,7 +157,8 @@ def get_ssh_session(host, username, password):
                           SSH_OUTDATED_CIPHER,
                           NETWORK_UNREACHABLE,
                           INVALID_KEY_LENGTH,
-                          EOF
+                          EOF,
+                          SSH_OUTDATED_HOST_KEY
                           ])
 
         if s == 0:
@@ -228,6 +230,12 @@ def get_ssh_session(host, username, password):
             child.close()
             return 93, ''
 
+        elif s == 17:
+            child_buffer_split = child.buffer.split()
+            their_offer = child_buffer_split[-1]
+            ssh_session = 'ssh %s@%s -oHostKeyAlgorithms=+%s' % (username, host, their_offer.split(',')[-1])  # outdated host key
+            child = spawnu(ssh_session)
+            continue
         else:
             child.close()
             return 1, ''
