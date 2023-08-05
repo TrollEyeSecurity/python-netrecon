@@ -18,6 +18,7 @@ def host_discovery(system_address, username, password):
     # 94 = permission denied
     # 93 = EOF
     # 92 = network unreachable
+    # 91 = no route to host
     # 1 = could not connect
 
     if ssh_session == 99:
@@ -36,6 +37,8 @@ def host_discovery(system_address, username, password):
         return 93
     if ssh_session == 92:
         return 92
+    if ssh_session == 91:
+        return 91
     if ssh_session == 1:
         return 1
     infrastructure_os, ssh_session, prompt = shared.discover_os(ssh_session, prompt, password)
@@ -43,19 +46,24 @@ def host_discovery(system_address, username, password):
         if infrastructure_os['os']:
             if infrastructure_os['os'] == 'panos':
                 data = get_panos_hosts(ssh_session, prompt)
-            elif infrastructure_os['os'] == 'ios':
-                data = get_ios_hosts(ssh_session, prompt)
+            elif infrastructure_os['os'] in ['ios', 'ios_xr']:
+                data = get_ios_hosts(ssh_session, prompt, infrastructure_os['os'])
             elif infrastructure_os['os'] == 'nxos':
-                data = get_nxos_hosts(ssh_session, prompt)
+                data = get_nxos_hosts(ssh_session, prompt, infrastructure_os['os'])
             elif infrastructure_os['os'] == 'asaos':
                 data = get_asa_hosts(ssh_session, prompt)
             elif infrastructure_os['os'] == 'linux':
                 data = infrastructure_os['os']
                 shared.kill_ssh_session(ssh_session)
     except KeyError as e:
-        print('HOST_DISCOVERY EXCEPTION ERROR: %s' % str(e))
+        print('HOST_DISCOVERY EXCEPTION ERROR FOR ADDRESS %s: %s' % (system_address, str(e)))
+        data = str(e)
     except TypeError as e:
-        print('HOST_DISCOVERY EXCEPTION ERROR: %s' % str(e))
+        print('HOST_DISCOVERY EXCEPTION ERROR FOR ADDRESS %s: %s' % (system_address, str(e)))
+        data = str(e)
+    except IndexError as e:
+        print('HOST_DISCOVERY EXCEPTION ERROR FOR ADDRESS %s: %s' % (system_address, str(e)))
+        data = str(e)
     return data
 
 
@@ -255,6 +263,11 @@ def get_asa_hosts(ssh_session, prompt):
     ipsec_sa_buff = ssh_session.before
     ipsec_sa_intefaces = ipsec_sa_buff.split('interface:')
 
+    ssh_session.sendline(shared.SHOW_RUN)
+    ssh_session.expect([TIMEOUT, prompt])
+    time.sleep(.1)
+    show_run_buff = ssh_session.before
+
     shared.kill_ssh_session(ssh_session)
     asa_interfaces_split = asa_interfaces_buff.split('!')
     asa_interfaces_split.pop(0)
@@ -400,10 +413,11 @@ def get_asa_hosts(ssh_session, prompt):
     data['system_info'] = system_info
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
+    data['latest_show_run'] = str(show_run_buff)
     return data
 
 
-def get_nxos_hosts(ssh_session, prompt):
+def get_nxos_hosts(ssh_session, prompt, infrastructure_os):
     data = dict()
     system_ip_list = list()
     host_list = list()
@@ -456,6 +470,14 @@ def get_nxos_hosts(ssh_session, prompt):
     ssh_session.expect([TIMEOUT, prompt])
     cam_buff = ssh_session.before
 
+    ssh_session.sendline(shared.IOS_SHOW_IP_ROUTE_VRF_ALL)
+    ssh_session.expect([TIMEOUT, prompt])
+    routes_buff = ssh_session.before
+
+    ssh_session.sendline(shared.SHOW_RUN)
+    ssh_session.expect([TIMEOUT, prompt])
+    show_run_buff = ssh_session.before
+
     shared.kill_ssh_session(ssh_session)
 
     addr_line_split = system_ip_address_buff.split('Interface            IP Address      Interface Status')
@@ -486,7 +508,7 @@ def get_nxos_hosts(ssh_session, prompt):
                 if local_subnet_dict not in subnet_list:
                     subnet_list.append(local_subnet_dict)
 
-    cdp_list = shared.get_cdp_list(cdp_data, 'nxos')
+    cdp_list = shared.get_cdp_list(cdp_data, infrastructure_os)
 
     cam_lines = cam_buff.split('---------+-----------------+--------+---------+------+----+------------------')[1].split('\r\n')
     cam_lines.pop(-1)
@@ -523,9 +545,13 @@ def get_nxos_hosts(ssh_session, prompt):
         if arp_line:
             line = arp_line.split()
             for x in mac_list:
-                if x['mac_address'] == line[2]:
+                try:
+                    mac_address = line[2]
+                except IndexError:
+                    continue
+                if x['mac_address'] == mac_address:
                     host_dict = {'host_address': line[0],
-                                 'mac_address': line[2],
+                                 'mac_address': mac_address,
                                  'adjacency_interface': line[-1],
                                  'mac_vendor': x['mac_vendor'],
                                  'type': x['type'],
@@ -534,17 +560,19 @@ def get_nxos_hosts(ssh_session, prompt):
 
                     if host_dict not in host_list:
                         host_list.append(host_dict)
-
+    routes_list = shared.get_routes_list(str(routes_buff), infrastructure_os)
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
     data['discovery_list'] = cdp_list
+    data['routes'] = routes_list
+    data['latest_show_run'] = str(show_run_buff)
 
     return data
 
 
-def get_ios_hosts(ssh_session, prompt):
+def get_ios_hosts(ssh_session, prompt, infrastructure_os):
     data = dict()
     system_ip_list = list()
     host_list = list()
@@ -568,6 +596,10 @@ def get_ios_hosts(ssh_session, prompt):
             break
         ios_xe_ver = search(r'(^Cisco\s+IOS\s+XE\s+Software,)', i)
         if ios_xe_ver:
+            sw_version = i.rstrip()
+            break
+        ios_xr_ver = search(r'(^Cisco\s+IOS\s+XR\s+Software,)', i)
+        if ios_xr_ver:
             sw_version = i.rstrip()
             break
             
@@ -594,6 +626,25 @@ def get_ios_hosts(ssh_session, prompt):
             print('IndexError: system_info[\'system_serial\'] - %s' % system_info)
             print('ssh_session args: %s' % ssh_session.args)
             return data
+    elif 'Cisco IOS XR Software, Version 6' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_XR_SHOW_INV_RACK)
+        switch_sn = ssh_session.before
+        system_info['system_serial'] = switch_sn.split('  ----                 ------------      ----------')[-1].split('\r\n')[1].split()[-1]
+    elif 'Cisco IOS XR Software, Version 7' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_XR_SHOW_INV_CHASSIS)
+        s = ssh_session.expect([TIMEOUT, prompt, shared.IOS_INVALID_INPUT])
+        if s == 2:
+            ssh_session.expect([TIMEOUT, prompt])
+            ssh_session.sendline(shared.IOS_XR_SHOW_INV_DETAILS_SN)
+            ssh_session.expect([TIMEOUT, prompt])
+            switch_sn = ssh_session.before
+            switch_sn_split = switch_sn.split('SN:')[1].split()
+            system_info['system_serial'] = switch_sn_split[0]
+        elif s != 2:
+            switch_sn = ssh_session.before
+            switch_sn_split = switch_sn.split()
+            switch_sn_split.pop(-1)
+            system_info['system_serial'] = switch_sn_split[-1]
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_SERIALNUM)
         ssh_session.expect([TIMEOUT, prompt])
@@ -622,6 +673,22 @@ def get_ios_hosts(ssh_session, prompt):
         system_info['system_model'] = switch_model.split('\r\n')[1].split()[1]
         if system_info['system_model'] == 'number':
             system_info['system_model'] = switch_model.split('\r\n')[1].split(':')[1].strip()
+    elif 'Cisco IOS XR Software, Version 6' in system_info['system_sw_version']:
+        system_info['system_model'] = switch_sn.split('  ----                 ------------      ----------')[-1].split('\r\n')[1].split()[1]
+    elif 'Cisco IOS XR Software, Version 7' in system_info['system_sw_version']:
+        ssh_session.sendline(shared.IOS_XR_SHOW_INV_PID)
+        s = ssh_session.expect([TIMEOUT, prompt, shared.IOS_INVALID_INPUT])
+        if s == 2:
+            ssh_session.expect([TIMEOUT, prompt])
+            ssh_session.sendline(shared.IOS_XR_SHOW_INV_DETAILS_PID)
+            ssh_session.expect([TIMEOUT, prompt])
+            switch_model = ssh_session.before
+            switch_model_split = switch_model.split('PID:')[1].split()
+            system_info['system_model'] = switch_model_split[0]
+        elif s != 2:
+            switch_model = ssh_session.before
+            switch_model_split = switch_model.split('PID:')[1].split()
+            system_info['system_model'] = switch_model_split[0]
     else:
         ssh_session.sendline(shared.IOS_SWITCH_SHOW_MODEL)
         ssh_session.expect([TIMEOUT, prompt])
@@ -644,9 +711,12 @@ def get_ios_hosts(ssh_session, prompt):
         arp_lines = arp_buff.split('\r\n')[2:]
     else:
         arp_lines = arp_buff.split('\r\n')[5:]
-    arp_lines.pop(-1)
+    try:
+        arp_lines.pop(-1)
+    except IndexError:
+        pass
 
-    if '2800 Software' in system_info['system_sw_version']:
+    if '2800 Software' in system_info['system_sw_version'] or 'Cisco IOS XR Software' in system_info['system_sw_version']:
         cam_lines = [1]
     else:
         ssh_session.sendline(shared.IOS_SHOW_CAM)
@@ -671,40 +741,68 @@ def get_ios_hosts(ssh_session, prompt):
                     'IOS-XE' in system_info['system_sw_version'] or \
                     'IOS XE' in system_info['system_sw_version'] or \
                     'C2960' in system_info['system_sw_version']:
-                cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
+                try:
+                    cam_lines = cam_buff.split('----    -----------       --------    -----')[1].split('\r\n')
+                except IndexError:
+                    cam_lines = cam_buff.split('----------------------------------------------------------------------------------------------')[1].split('\r\n')
             else:
                 cam_lines = \
                 cam_buff.split('------+----------------+--------+-----+----------+--------------------------')[1].split(
                     '\r\n')
-    cam_lines.pop(-1)
+    try:
+        cam_lines.pop(-1)
+    except IndexError:
+        pass
     ssh_session.sendline(shared.IOS_SHOW_CDP_DETAIL)
     ssh_session.expect([TIMEOUT, prompt])
     cdp_buff = ssh_session.before
     cdp_data = str(cdp_buff).split('-------------------------')
 
-    shared.kill_ssh_session(ssh_session)
-    addr_line_split = system_ip_address_buff.split(
-        'Interface                  IP-Address      OK? Method Status                Protocol')
-    if len(addr_line_split) == 1:
-        addr_line_split = system_ip_address_buff.split(
-            'Interface              IP-Address      OK? Method Status                Protocol')
-    addrs_nl_split = addr_line_split[1].split('\r\n')
+    ssh_session.sendline(shared.IOS_SHOW_IP_ROUTE_VRF_ALL)
+    ssh_session.expect([TIMEOUT, prompt])
+    routes_buff = ssh_session.before
 
+    ssh_session.sendline(shared.SHOW_RUN)
+    ssh_session.expect([TIMEOUT, prompt])
+    show_run_buff = ssh_session.before
+
+    shared.kill_ssh_session(ssh_session)
+
+    if 'Cisco IOS XR Software' in system_info['system_sw_version']:
+        addr_line_split = system_ip_address_buff.split(
+            'Interface                      IP-Address      Status          Protocol Vrf-Name')
+        addrs_nl_split = addr_line_split[1].split('\r\n')
+    else:
+        addr_line_split = system_ip_address_buff.split(
+            'Interface                  IP-Address      OK? Method Status                Protocol')
+        if len(addr_line_split) == 1:
+            addr_line_split = system_ip_address_buff.split(
+                'Interface              IP-Address      OK? Method Status                Protocol')
+        addrs_nl_split = addr_line_split[1].split('\r\n')
     addrs_nl_split.pop(-1)
 
     for line in addrs_nl_split:
         if line:
             addrs_line = line.split()
             if addrs_line:
-                if len(addrs_line) == 3:
-                    status = addrs_line[2]
+                if 'Cisco IOS XR Software' in system_info['system_sw_version']:
+                    status = '%s/%s' % (addrs_line[2],
+                                        addrs_line[3])
+                    d = {'system_ip_address': addrs_line[1],
+                         'name': addrs_line[0],
+                         'status': status,
+                         'vrf_name': addrs_line[4]
+                         }
                 else:
-                    status = '%s/%s' % (addrs_line[4],
-                                        addrs_line[5])
-                d = {'system_ip_address': addrs_line[1],
-                     'name': addrs_line[0],
-                     'status': status
-                     }
+                    if len(addrs_line) == 3:
+                        status = addrs_line[2]
+                    else:
+                        status = '%s/%s' % (addrs_line[4],
+                                            addrs_line[5])
+                    d = {'system_ip_address': addrs_line[1],
+                         'name': addrs_line[0],
+                         'status': status
+                         }
                 if d not in system_ip_list:
                     system_ip_list.append(d)
 
@@ -724,7 +822,7 @@ def get_ios_hosts(ssh_session, prompt):
                     if local_subnet_dict not in subnet_list:
                         subnet_list.append(local_subnet_dict)
 
-    cdp_list = shared.get_cdp_list(cdp_data)
+    cdp_list = shared.get_cdp_list(cdp_data, infrastructure_os)
 
     for cam_line in cam_lines:
         if cam_line:
@@ -774,7 +872,7 @@ def get_ios_hosts(ssh_session, prompt):
 
                         if host_dict not in host_list:
                             host_list.append(host_dict)
-
+    routes_list = shared.get_routes_list(str(routes_buff), infrastructure_os)
     # todo: add ios nat
     # data['nat_list'] = nat_list
     data['system_ip_list'] = system_ip_list
@@ -782,5 +880,7 @@ def get_ios_hosts(ssh_session, prompt):
     data['subnet_list'] = subnet_list
     data['host_list'] = host_list
     data['discovery_list'] = cdp_list
+    data['routes'] = routes_list
+    data['latest_show_run'] = str(show_run_buff)
 
     return data
