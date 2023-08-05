@@ -18,6 +18,7 @@ PASSWORD = '.*[P|p]assword.*'
 PERMISSION_DENIED = 'Permission denied, please try again.'
 NETWORK_UNREACHABLE = '.Network is unreachable.'
 INVALID_KEY_LENGTH = '.Invalid key length.'
+NO_ROUTE_TO_HOST = '.No route to host'
 
 # -----------
 # ssh prompts
@@ -30,8 +31,9 @@ HASH_PROMPT_W_S = '# $'
 # ----------------------
 # Cisco generic commands
 # ----------------------
-SHOWVER = 'show version'
+SHOW_VER = 'show version'
 SHOW_OS = 'show version | include Software'
+SHOW_RUN = 'show run'
 ENABLE = 'enable'
 
 # ------------------
@@ -55,6 +57,12 @@ IOS_S72033_RP_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_RTR_SHOW_SERIALNUM = 'show version | include Processor board ID'
 IOS_SHOW_LICS = 'show version | include License Level'
 IOS_LAST_RESORT_SHOW_MODEL = 'show version  | include (WS)'
+IOS_XR_SHOW_INV_RACK = 'show inventory rack'
+IOS_XR_SHOW_INV_CHASSIS = 'show inventory chassis | in SN'
+IOS_XR_SHOW_INV_PID = 'show inventory chassis | in PID'
+IOS_XR_SHOW_INV_DETAILS_SN = 'show inventory | in SN'
+IOS_XR_SHOW_INV_DETAILS_PID = 'show inventory | in PID'
+IOS_SHOW_IP_ROUTE_VRF_ALL = 'show ip route vrf all'
 
 
 # --------------------
@@ -95,6 +103,7 @@ PAN_SHOW_ARP = 'show arp all'
 # ERRORS
 # ------
 
+IOS_INVALID_INPUT = '.Invalid input detected at.'
 OPERATIONAL_TIMEOUT = '.*Operation timed out\r\r\n.*'
 ERROR = '.*ERROR:.*'
 BASH_ERROR = '.*bash:.*'
@@ -141,6 +150,7 @@ def get_ssh_session(host, username, password):
         # 94 = permission denied
         # 93 = EOF
         # 92 = network unreachable
+        # 91 = no route to host
         s = child.expect([SSH_NEW_KEY,
                           SSH_OUTDATED_KEX,
                           PASSWORD,
@@ -158,7 +168,8 @@ def get_ssh_session(host, username, password):
                           NETWORK_UNREACHABLE,
                           INVALID_KEY_LENGTH,
                           EOF,
-                          SSH_OUTDATED_HOST_KEY
+                          SSH_OUTDATED_HOST_KEY,
+                          NO_ROUTE_TO_HOST,
                           ])
 
         if s == 0:
@@ -236,6 +247,9 @@ def get_ssh_session(host, username, password):
             ssh_session = 'ssh %s@%s -oHostKeyAlgorithms=+%s' % (username, host, their_offer.split(',')[-1])  # outdated host key
             child = spawnu(ssh_session)
             continue
+        elif s == 18:
+            child.close()
+            return 91, ''
         else:
             child.close()
             return 1, ''
@@ -275,6 +289,8 @@ def discover_os(ssh_session, prompt, password):
                 show_os_buff = ssh_session.before
                 if 'NX-OS' in show_os_buff:
                     infrastructure_os = {'os': 'nxos'}
+                elif 'Cisco IOS XR' in show_os_buff:
+                    infrastructure_os = {'os': 'ios_xr'}
                 elif 'IOS' in show_os_buff:
                     infrastructure_os = {'os': 'ios'}
                 else:
@@ -300,6 +316,8 @@ def discover_os(ssh_session, prompt, password):
         show_os_buff = ssh_session.before
         if 'NX-OS' in show_os_buff:
             infrastructure_os = {'os': 'nxos'}
+        elif 'Cisco IOS XR' in show_os_buff:
+            infrastructure_os = {'os': 'ios_xr'}
         elif 'IOS' in show_os_buff:
             infrastructure_os = {'os': 'ios'}
         else:
@@ -338,7 +356,7 @@ def kill_ssh_session(ssh_session):
             print('KILL_SSH_SESSION ERROR: %s' % str(e2))
 
 
-def get_cdp_list(cdp_data, os='ios'):
+def get_cdp_list(cdp_data, os):
     cdp_list = list()
 
     if cdp_data:
@@ -405,6 +423,8 @@ def get_cdp_list(cdp_data, os='ios'):
                     interface_port_id = interface_port_id[0].split(',')
                     discovery_list.append(interface_port_id[0].lstrip())
                     discovery_list.append(interface_port_id[1].lstrip())
+                elif os == 'ios_xr':
+                    discovery_list.append(interface_port_id[0])
                 else:
                     discovery_list.append(interface_port_id[0])
                     discovery_list.append(interface_port_id[1])
@@ -463,8 +483,6 @@ def get_cdp_list(cdp_data, os='ios'):
             # search for power info
             reg_power_drawn = search(r'(Power drawn:.+?)\n', element)
 
-            # discovery_dictionary = dict()
-
             try:
                 # parse power info and clean it up
                 discovery_list += [sub(r':\s+', ':', reg_power_drawn.group(0).strip())]
@@ -472,14 +490,27 @@ def get_cdp_list(cdp_data, os='ios'):
                 discovery_list.append('Power drawn:')
 
                 # build the discovery protocol dictionary from the list
-            discovery_dictionary = dict(map(str, x.split(':')) for x in discovery_list)
-
-            # iterate the key, value pairs and change empty value to None
-            for k, v in discovery_dictionary.items():
-                if v == '':
-                    discovery_dictionary[k] = None
-
-            if discovery_dictionary['Device ID'] is not None:
-                if discovery_dictionary not in cdp_list:
-                    cdp_list.append(discovery_dictionary)
+            d = {}
+            for x in discovery_list:
+                s = x.split(':')
+                if s[1] == '':
+                    d['%s' % s[0]] = None
+                else:
+                    d['%s' % s[0]] = s[1]
+            if d['Device ID'] is not None:
+                if d not in cdp_list:
+                    cdp_list.append(d)
     return cdp_list
+
+
+def get_routes_list(route_data, os):
+    routes_list = list()
+    route_data_split = route_data.split('VRF:')
+    for s in route_data_split:
+        lines = s.split('\r\n')
+        vrf_name = lines[0].strip()
+        data = '\r\n'.join(lines[3:])
+        if data == "":
+            continue
+        routes_list.append({'vrf_name': vrf_name, 'routing_table': data})
+    return routes_list
