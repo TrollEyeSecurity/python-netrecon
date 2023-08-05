@@ -1,7 +1,11 @@
 # Created by .ignore support plugin (hsz.mobi)
 
+# shell scripts
+run.sh
+
 # application
 netrecon/settings.py
+data/*
 
 # ide crap
 .idea/
