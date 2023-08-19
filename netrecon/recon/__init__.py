@@ -422,7 +422,6 @@ def get_nxos_hosts(ssh_session, prompt, infrastructure_os):
     system_ip_list = list()
     host_list = list()
     subnet_list = list()
-    mac_list = list()
     system_info = dict()
 
     sw_version = None
@@ -466,10 +465,6 @@ def get_nxos_hosts(ssh_session, prompt, infrastructure_os):
     ssh_session.expect([TIMEOUT, prompt])
     arp_buff = ssh_session.before
 
-    ssh_session.sendline(shared.IOS_SHOW_CAM)
-    ssh_session.expect([TIMEOUT, prompt])
-    cam_buff = ssh_session.before
-
     ssh_session.sendline(shared.IOS_SHOW_IP_ROUTE_VRF_ALL)
     ssh_session.expect([TIMEOUT, prompt])
     routes_buff = ssh_session.before
@@ -509,57 +504,21 @@ def get_nxos_hosts(ssh_session, prompt, infrastructure_os):
                     subnet_list.append(local_subnet_dict)
 
     cdp_list = shared.get_cdp_list(cdp_data, infrastructure_os)
-
-    cam_lines = cam_buff.split('---------+-----------------+--------+---------+------+----+------------------')[1].split('\r\n')
-    cam_lines.pop(-1)
-    for cam_line in cam_lines:
-        cam_line = cam_line.split()
-        if cam_line:
-            try:
-                if cam_line[0] in ('Legend:', '*', 'age', 'VLAN'):
-                    continue
-                mac_vendor = shared.lookup_mac_vendor(cam_line[2].replace('.', ''))
-            except IndexError as mac_vendor_error:
-                print(mac_vendor_error)
-                print('----------------------------------------------')
-                print('IndexError: mac_vendor - %s' % system_info)
-                print('ssh_session args: %s' % ssh_session.args)
-                return data
-            try:
-                vlan = int(cam_line[1])
-            except ValueError:
-                vlan = cam_line[1]
-            mac_addr_dict = {'mac_address': cam_line[2],
-                             'type': cam_line[3],
-                             'port': cam_line[-1],
-                             'vlan': vlan,
-                             'mac_vendor': mac_vendor}
-            if mac_addr_dict not in mac_list:
-                mac_list.append(mac_addr_dict)
-                continue
-
     arp_lines = arp_buff.split('Address         Age       MAC Address     Interface')
     arp_lines = arp_lines[1].split('\r\n')
     arp_lines.pop(-1)
     for arp_line in arp_lines:
         if arp_line:
             line = arp_line.split()
-            for x in mac_list:
-                try:
-                    mac_address = line[2]
-                except IndexError:
-                    continue
-                if x['mac_address'] == mac_address:
-                    host_dict = {'host_address': line[0],
-                                 'mac_address': mac_address,
-                                 'adjacency_interface': line[-1],
-                                 'mac_vendor': x['mac_vendor'],
-                                 'type': x['type'],
-                                 'port': x['port'],
-                                 'vlan': x['vlan']}
+            mac_vendor = shared.lookup_mac_vendor(line[2].replace('.', ''))
+            host_dict = {'host_address': line[0],
+                         'mac_address': line[2],
+                         'adjacency_interface': line[-1],
+                         'mac_vendor': mac_vendor,
+                         }
 
-                    if host_dict not in host_list:
-                        host_list.append(host_dict)
+            if host_dict not in host_list:
+                host_list.append(host_dict)
     routes_list = shared.get_routes_list(str(routes_buff), infrastructure_os)
     data['system_ip_list'] = system_ip_list
     data['system_info'] = system_info
