@@ -25,8 +25,7 @@ jobs:
     environment:
       IMAGE_NAME: trolleye/netrecon
     steps:
-      - checkout:
-        force-ssh: false
+      - checkout
       - run:
           command: echo "Starting to build docker image"
       - run:
