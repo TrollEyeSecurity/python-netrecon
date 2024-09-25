@@ -2,7 +2,7 @@ version: 2.1
 executors:
   docker-publisher:
     docker: # Each job requires specifying an executor
-    # (either docker, macos, or machine), see
+    # (either docker, macos, or machine), se
       - image: circleci/node:latest
         auth:
             username: $DOCKERHUB_USERNAME
